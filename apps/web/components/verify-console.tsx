@@ -22,6 +22,10 @@ interface Props {
 
 type TrustMode = "published" | "embedded";
 
+function detach(pack: EvidencePack): EvidencePack {
+  return JSON.parse(JSON.stringify(pack)) as EvidencePack;
+}
+
 interface Tamper {
   id: string;
   label: string;
@@ -75,11 +79,9 @@ const TAMPERS: Tamper[] = [
   {
     id: "principal",
     label: "Rename the accountable person",
-    describe: "changed who the chain says is answerable",
+    describe: "changed the name shown as answerable, leaving the mandates untouched",
     apply: (pack) => {
       pack.authority.liablePrincipal.name = "A. Nother";
-      const root = pack.authority.chain[0];
-      if (root) root.liablePrincipal.name = "A. Nother";
       return true;
     },
   },
@@ -123,7 +125,7 @@ function ResultBanner({ report }: { report: VerificationReport }) {
 
 export function VerifyConsole({ scenarios, activeScenarioId, pack, publishedTrustRoots }: Props) {
   const original = useMemo(() => pack, [pack]);
-  const [working, setWorking] = useState<EvidencePack>(() => structuredClone(pack));
+  const [working, setWorking] = useState<EvidencePack>(() => detach(pack));
   const [trustMode, setTrustMode] = useState<TrustMode>("published");
   const [report, setReport] = useState<VerificationReport | null>(null);
   const [busy, setBusy] = useState(false);
@@ -133,7 +135,7 @@ export function VerifyConsole({ scenarios, activeScenarioId, pack, publishedTrus
   const fileInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    setWorking(structuredClone(original));
+    setWorking(detach(original));
     setReport(null);
     setEdits([]);
     setLoadError(null);
@@ -171,7 +173,7 @@ export function VerifyConsole({ scenarios, activeScenarioId, pack, publishedTrus
 
   const applyTamper = useCallback(
     (tamper: Tamper) => {
-      const next = structuredClone(working);
+      const next = detach(working);
       if (!tamper.apply(next)) return;
       setWorking(next);
       setEdits((current) => [...current, tamper.describe]);
@@ -181,7 +183,7 @@ export function VerifyConsole({ scenarios, activeScenarioId, pack, publishedTrus
   );
 
   const reset = useCallback(() => {
-    const next = structuredClone(original);
+    const next = detach(original);
     setWorking(next);
     setEdits([]);
     setLoadError(null);
