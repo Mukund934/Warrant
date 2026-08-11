@@ -1,0 +1,106 @@
+@import "tailwindcss";
+
+@theme {
+  --color-ink: #07090d;
+  --color-ink-raised: #0d1016;
+  --color-surface: #12161d;
+  --color-surface-raised: #171c25;
+  --color-line: #232a35;
+  --color-line-strong: #323b49;
+  --color-text: #e7eaef;
+  --color-text-muted: #98a1af;
+  --color-text-faint: #6b7583;
+  --color-seal: #d29a3c;
+  --color-seal-dim: #6d4f1d;
+  --color-pass: #4aa87a;
+  --color-fail: #d8615c;
+  --color-warn: #d29a3c;
+  --color-paper: #f6f3ec;
+  --color-paper-line: #ddd6c7;
+  --color-paper-text: #1c1a16;
+  --color-paper-muted: #63605a;
+
+  --font-sans: ui-sans-serif, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, "SFMono-Regular", "Cascadia Mono", Menlo, Consolas, monospace;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html {
+  background-color: var(--color-ink);
+}
+
+body {
+  background-color: var(--color-ink);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background-color: color-mix(in srgb, var(--color-seal) 35%, transparent);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-seal);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+@layer utilities {
+  .rule {
+    background-image: linear-gradient(
+      to right,
+      var(--color-line) 0,
+      var(--color-line) 4px,
+      transparent 4px,
+      transparent 8px
+    );
+    background-size: 8px 1px;
+    background-repeat: repeat-x;
+  }
+}
+
+.reveal {
+  animation: reveal 320ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+
+@keyframes reveal {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.trace {
+  stroke-dasharray: var(--trace-length, 200);
+  stroke-dashoffset: var(--trace-length, 200);
+  animation: trace 900ms cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+@keyframes trace {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  .trace {
+    stroke-dashoffset: 0;
+  }
+}

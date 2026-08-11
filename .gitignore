@@ -3,7 +3,7 @@ dist/
 .next/
 out/
 coverage/
-evidence/
+/evidence/
 
 .env
 .env.*
@@ -17,3 +17,6 @@ evidence/
 Thumbs.db
 
 docs/internal/
+.claude/
+AGENTS.md
+CLAUDE.md
