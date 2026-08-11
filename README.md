@@ -28,8 +28,17 @@ here, on a page dedicated to separating what works from what is staged.
 
 ```bash
 npm install
-npm test              # 86 tests
+npm test              # 107 tests
 npm run dev           # http://localhost:3000
+```
+
+No database, no credentials, no environment variables. A fresh clone runs as it stands.
+
+The Express service is a second process, needed only for issuing your own mandates and running your
+own actions through the gate. The eight demonstration scenarios and all verification work without it.
+
+```bash
+npm run dev:api       # http://localhost:4000
 ```
 
 To verify an evidence pack from the command line, with no network access:
@@ -97,9 +106,19 @@ Eight deterministic scenarios, each running the same engine against different au
 ```
 packages/core       mandate format, scope algebra, gate, ledger, evidence pack, verifier
 packages/verifier   standalone command-line verifier
+apps/api            Express service: issuance, delegation, gate, evidence, revocation
 apps/web            demonstrator, evidence pack view, in-browser verification
 scripts             key generation, pack export, a tamper helper for testing
 ```
+
+Issuing, delegating, gate evaluation and evidence generation are server-side, in `apps/api`.
+Verification deliberately is not confined there — a relying party has to be able to check evidence on
+their own machine, so the same verification code runs in the service, in the CLI and in the browser.
+
+There is no database. State sits behind four interfaces — `MandateRepository`, `EvidenceRepository`,
+`LedgerRepository` and `NonceStore` — with in-memory implementations. Each maps to one table when
+PostgreSQL is introduced, and nothing in the authority model depends on which implementation is
+behind them.
 
 ## Cryptography
 

@@ -86,6 +86,18 @@ const REQUIREMENTS = [
   },
 ];
 
+const ENDPOINTS = [
+  ["GET", "/health", "Reports that the service runs without a database"],
+  ["GET", "/v1/trust-roots", "The published public keys, private halves never leave the fixtures"],
+  ["GET", "/v1/scenarios", "The eight fixed demonstration scenarios"],
+  ["GET", "/v1/evidence/:id", "An evidence pack, whether fixture or one you just produced"],
+  ["POST", "/v1/verify", "Server-side verification, the same code the CLI and the browser run"],
+  ["POST", "/v1/mandates", "Issue a root mandate under the demonstration principal"],
+  ["POST", "/v1/mandates/:id/delegations", "Delegate; refuses with 422 and names the violation if it widens"],
+  ["POST", "/v1/mandates/:id/revocation", "Withdraw a mandate"],
+  ["POST", "/v1/actions", "Run an action through the gate and record the evidence"],
+];
+
 const STATE_STYLE = {
   implemented: "border-pass/45 bg-pass/[0.08] text-pass",
   partial: "border-warn/45 bg-warn/[0.08] text-warn",
@@ -184,6 +196,63 @@ export default async function TechnicalPage() {
               because a validator that strips unknown fields would change the bytes that were signed.
             </DefinitionRow>
           </dl>
+        </section>
+
+        <section>
+          <h2 className="mb-4 text-[19px] font-semibold tracking-tight">Architecture</h2>
+          <p className="mb-4 max-w-3xl text-[14px] leading-relaxed text-text-muted">
+            Issuing a mandate, delegating it, running the gate and sealing evidence are all
+            server-side, in an Express service. Verification is deliberately not: a relying party has
+            to be able to check evidence on their own machine, so the same verification code runs in
+            the service, in the command-line tool and in your browser.
+          </p>
+          <pre className="mb-5 overflow-x-auto rounded-lg border border-line bg-ink-raised px-5 py-4 font-mono text-[12.5px] leading-relaxed text-text-muted">
+{`apps/web        Next.js  ─┐
+                          ├─►  apps/api    Express + TypeScript
+packages/verifier  CLI  ──┤         │
+                          │         ▼
+your browser  ────────────┘   packages/core   mandates · scope algebra · gate · evidence
+                                    │
+                                    ▼
+                              repositories    in-memory today, Postgres later`}
+          </pre>
+          <div className="overflow-x-auto rounded-lg border border-line">
+            <table className="w-full min-w-[40rem] border-collapse bg-surface text-left">
+              <thead>
+                <tr className="border-b border-line text-[11.5px] uppercase tracking-[0.1em] text-text-faint">
+                  <th className="px-4 py-2.5 font-medium">Method</th>
+                  <th className="px-4 py-2.5 font-medium">Path</th>
+                  <th className="px-4 py-2.5 font-medium">What it does</th>
+                </tr>
+              </thead>
+              <tbody>
+                {ENDPOINTS.map(([method, path, purpose]) => (
+                  <tr key={path} className="border-b border-line align-top last:border-b-0">
+                    <td className="px-4 py-2.5">
+                      <Mono className="text-seal">{method}</Mono>
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <Mono>{path}</Mono>
+                    </td>
+                    <td className="px-4 py-2.5 text-[12.5px] leading-relaxed text-text-muted">
+                      {purpose}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="mt-5">
+            <Label>Persistence is a seam, not a dependency</Label>
+            <p className="mt-2 max-w-3xl text-[13.5px] leading-relaxed text-text-muted">
+              There is no database. State sits behind four small interfaces —{" "}
+              <Mono>MandateRepository</Mono>, <Mono>EvidenceRepository</Mono>,{" "}
+              <Mono>LedgerRepository</Mono> and <Mono>NonceStore</Mono> — with in-memory
+              implementations. Each maps to one table when Postgres arrives, and none of the
+              authority model depends on which implementation is behind it. A fresh clone runs with
+              no credentials, no provisioning and no environment variables.
+            </p>
+          </div>
         </section>
 
         <section>
@@ -293,7 +362,7 @@ export default async function TechnicalPage() {
 {`git clone https://github.com/Mukund934/Warrant
 cd Warrant && npm install
 
-npm test                    # 86 tests: scope algebra, gate, tampering, forgery
+npm test                    # 107 tests: scope algebra, gate, tampering, forgery, API
 npm run export:packs        # writes every scenario to evidence/
 
 node packages/verifier/dist/cli.js \\
