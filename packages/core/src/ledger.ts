@@ -9,9 +9,11 @@ export const GENESIS_DIGEST = "warrant/ledger/v0.1/genesis";
 
 export type LedgerEntryType = LedgerEntry["type"];
 
-async function entryDigest(entry: Omit<LedgerEntry, "digest">): Promise<string> {
+export async function ledgerEntryDigest(entry: Omit<LedgerEntry, "digest">): Promise<string> {
   return digestOf(entry);
 }
+
+const entryDigest = ledgerEntryDigest;
 
 export class Ledger {
   private readonly entries: LedgerEntry[] = [];
