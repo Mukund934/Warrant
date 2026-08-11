@@ -98,6 +98,7 @@ export const actionRequestSchema = z.object({
   amount: moneySchema.optional(),
   description: z.string().min(1),
   requestedAt: isoDateTime,
+  proof: proofSchema,
 });
 
 export const checkSchema = z.object({
@@ -216,6 +217,7 @@ export type ScopeDelta = z.infer<typeof scopeDeltaSchema>;
 export type Mandate = z.infer<typeof mandateSchema>;
 export type UnsignedMandate = Omit<Mandate, "proof">;
 export type ActionRequest = z.infer<typeof actionRequestSchema>;
+export type UnsignedActionRequest = Omit<ActionRequest, "proof">;
 export type Check = z.infer<typeof checkSchema>;
 export type CheckStatus = Check["status"];
 export type EvaluationInputs = z.infer<typeof evaluationInputsSchema>;

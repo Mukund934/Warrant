@@ -17,6 +17,7 @@ const AUTHENTICITY_CHECKS = new Set([
   "chain.signatures",
   "chain.root_trusted",
   "chain.liable_principal",
+  "request.signature",
 ]);
 
 export interface VerificationOptions {

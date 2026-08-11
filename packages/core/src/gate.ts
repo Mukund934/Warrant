@@ -1,5 +1,6 @@
+import { verifyActionRequest } from "./action.js";
 import { digestOf } from "./canonical.js";
-import { validateChain } from "./chain.js";
+import { findTrustRoot, validateChain } from "./chain.js";
 import { mandateDigest } from "./mandate.js";
 import { formatMoney, isScopeEmpty, permitsCounterparty, describeCounterparties } from "./scope.js";
 import { signDetached } from "./sign.js";
@@ -88,6 +89,52 @@ export async function assess(
         "the agent requesting this action is not the agent the mandate was issued to",
         `${leaf.subject.name} (${leaf.subject.id})`,
         request.actor,
+      ),
+    );
+  }
+
+  const requestKey = findTrustRoot(context.trustRoots, request.proof.verificationMethod);
+  if (!requestKey) {
+    checks.push(
+      fail(
+        "request.signature",
+        "The request itself is signed and unaltered",
+        `no public key is known for ${request.proof.verificationMethod}`,
+      ),
+    );
+  } else {
+    const outcome = await verifyActionRequest(request, requestKey.publicKeyJwk);
+    checks.push(
+      outcome.valid
+        ? pass(
+            "request.signature",
+            "The request itself is signed and unaltered",
+            `signed by ${request.proof.verificationMethod} at ${request.requestedAt}`,
+          )
+        : fail(
+            "request.signature",
+            "The request itself is signed and unaltered",
+            outcome.reason ?? "the request signature is invalid",
+          ),
+    );
+  }
+
+  if (request.proof.verificationMethod === leaf.subject.keyId) {
+    checks.push(
+      pass(
+        "actor.possession",
+        "The requesting agent proved it holds the mandate's key",
+        `${leaf.subject.name} signed this request with ${leaf.subject.keyId}`,
+      ),
+    );
+  } else {
+    checks.push(
+      fail(
+        "actor.possession",
+        "The requesting agent proved it holds the mandate's key",
+        "presenting a mandate is not enough; this request was signed by a different key",
+        leaf.subject.keyId,
+        request.proof.verificationMethod,
       ),
     );
   }

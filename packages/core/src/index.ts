@@ -3,6 +3,7 @@ export * from "./canonical.js";
 export * from "./keys.js";
 export * from "./sign.js";
 export * from "./scope.js";
+export * from "./action.js";
 export * from "./mandate.js";
 export * from "./chain.js";
 export * from "./gate.js";

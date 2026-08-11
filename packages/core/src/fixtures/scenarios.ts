@@ -1,3 +1,4 @@
+import { signActionRequest } from "../action.js";
 import { buildEvidencePack } from "../evidence.js";
 import { evaluate } from "../gate.js";
 import type { GateIdentity } from "../gate.js";
@@ -13,9 +14,19 @@ import type {
   Mandate,
   RevocationSnapshot,
   TrustRoot,
+  UnsignedActionRequest,
   Verdict,
 } from "../types.js";
-import { apAgentKey, demoKeys, gateKey, ledgerKey, payAgentKey, principalKey } from "./keys.js";
+import {
+  apAgentKey,
+  demoKeys,
+  gateKey,
+  ledgerKey,
+  payAgentKey,
+  principalKey,
+  rogueAgentKey,
+  settleAgentKey,
+} from "./keys.js";
 import { settlementAgent } from "./parties.js";
 import {
   BANK,
@@ -151,8 +162,16 @@ async function buildSubDelegation(options: {
   );
 }
 
-function request(overrides: Partial<ActionRequest> & { id: string; nonce: string }): ActionRequest {
-  return {
+const actorKeys: Record<string, (typeof demoKeys)[number]> = {
+  [paymentAgent.id]: payAgentKey,
+  [settlementAgent.id]: settleAgentKey,
+  [rogueAgent.id]: rogueAgentKey,
+};
+
+async function request(
+  overrides: Partial<UnsignedActionRequest> & { id: string; nonce: string },
+): Promise<ActionRequest> {
+  const unsigned: UnsignedActionRequest = {
     actor: paymentAgent.id,
     action: "payment.execute",
     resource: BANK,
@@ -162,6 +181,11 @@ function request(overrides: Partial<ActionRequest> & { id: string; nonce: string
     requestedAt: TIMELINE.evaluatedAt,
     ...overrides,
   };
+  const key = actorKeys[unsigned.actor];
+  if (!key) {
+    throw new Error(`no demonstration key for actor ${unsigned.actor}`);
+  }
+  return signActionRequest(unsigned, signerOf(key));
 }
 
 async function runScenario(
@@ -257,7 +281,7 @@ async function build(): Promise<ScenarioRun[]> {
           "Every hop from Priya Sharma down to the agent that moved the money is signed, and the gate signed its own verdict.",
       },
       chain,
-      request({ id: "req_20260820_4471", nonce: "n-4471-a91c8e2f" }),
+      await request({ id: "req_20260820_4471", nonce: "n-4471-a91c8e2f" }),
       clean,
       standardInputs,
     ),
@@ -272,7 +296,7 @@ async function build(): Promise<ScenarioRun[]> {
           "Identity was never the question. The mandate records what Priya actually granted, and this is outside it.",
       },
       chain,
-      request({
+      await request({
         id: "req_20260820_4472",
         nonce: "n-4472-16bd30aa",
         amount: inr(800_000),
@@ -293,7 +317,7 @@ async function build(): Promise<ScenarioRun[]> {
           "The escalation is caught by comparing the two mandates, not by a rule someone remembered to write. Authority can only narrow, and it narrows across every hop at once.",
       },
       [root, delegated, escalating],
-      request({
+      await request({
         id: "req_20260820_4473",
         nonce: "n-4473-77e0c145",
         actor: settlementAgent.id,
@@ -314,7 +338,7 @@ async function build(): Promise<ScenarioRun[]> {
           "The evidence still proves the authority once existed and exactly when it stopped. That is the difference between a record and a log.",
       },
       [lapsedRoot, lapsedDelegated],
-      request({ id: "req_20260820_4474", nonce: "n-4474-c2a91ffe" }),
+      await request({ id: "req_20260820_4474", nonce: "n-4474-c2a91ffe" }),
       clean,
       standardInputs,
     ),
@@ -329,7 +353,7 @@ async function build(): Promise<ScenarioRun[]> {
           "A valid signature proves the mandate is genuine. It does not prove the agent holding it is the one it was issued to.",
       },
       chain,
-      request({ id: "req_20260820_4475", nonce: "n-4475-3b6e4d10", actor: rogueAgent.id }),
+      await request({ id: "req_20260820_4475", nonce: "n-4475-3b6e4d10", actor: rogueAgent.id }),
       clean,
       standardInputs,
     ),
@@ -344,7 +368,7 @@ async function build(): Promise<ScenarioRun[]> {
           "A signature cannot be un-signed, so revocation is published separately and checked at the moment of the action.",
       },
       chain,
-      request({ id: "req_20260820_4476", nonce: "n-4476-8fa2b703" }),
+      await request({ id: "req_20260820_4476", nonce: "n-4476-8fa2b703" }),
       await revocationListing(
         "mnd_dlg_2026_08_014",
         "Withdrawn by Priya Sharma pending review of the August payment run",
@@ -362,7 +386,7 @@ async function build(): Promise<ScenarioRun[]> {
           "Limits are not only about money. The mandate names who may be paid, and that constraint survives every hop.",
       },
       chain,
-      request({
+      await request({
         id: "req_20260820_4477",
         nonce: "n-4477-d40c9a18",
         amount: inr(95_000),
@@ -383,7 +407,7 @@ async function build(): Promise<ScenarioRun[]> {
           "Authority and autonomy are separate settings. Priya delegated the power and kept the last word above a threshold she chose.",
       },
       chain,
-      request({
+      await request({
         id: "req_20260820_4478",
         nonce: "n-4478-51cc7e9b",
         amount: inr(480_000),

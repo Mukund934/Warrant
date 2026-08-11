@@ -6,6 +6,7 @@ import {
   delegateMandate,
   evaluate,
   issueRootMandate,
+  signActionRequest,
   signDetached,
   verifyEvidencePack,
 } from "../src/index.js";
@@ -63,6 +64,24 @@ describe("attacks on the authority chain", () => {
     const report = await verifyEvidencePack(pack, { trustRoots, verifiedAt });
     expect(report.result).toBe("INVALID");
     expect(failing(report.checks)).toContain("chain.signatures");
+  });
+
+  it("refuses a request whose actor was edited to match the mandate", async () => {
+    const wrongAgent = scenarios.find((scenario) => scenario.id === "wrong-agent")!;
+    const pack = clone(wrongAgent.pack);
+    const leaf = pack.authority.chain[pack.authority.chain.length - 1]!;
+    pack.request.actor = leaf.subject.id;
+    const report = await verifyEvidencePack(pack, { trustRoots, verifiedAt });
+    expect(report.result).toBe("INVALID");
+    expect(failing(report.checks)).toContain("request.signature");
+  });
+
+  it("refuses an action presented under a mandate the signer does not hold", async () => {
+    const wrongAgent = scenarios.find((scenario) => scenario.id === "wrong-agent")!;
+    const report = await verifyEvidencePack(wrongAgent.pack, { trustRoots, verifiedAt });
+    expect(report.result).toBe("VERIFIED");
+    expect(failing(report.authority?.checks ?? [])).toContain("actor.possession");
+    expect(failing(report.authority?.checks ?? [])).toContain("actor.binding");
   });
 
   it("refuses a reordered ledger", async () => {
@@ -131,17 +150,20 @@ describe("a pack forged end to end under the attacker's own keys", () => {
       ),
     };
 
-    const request = {
-      id: "req_forged",
-      nonce: "n-forged-0000dead",
-      actor: agent.id,
-      action: "payment.execute",
-      resource: "bank:hdfc/corporate-api",
-      counterparty: KALYANI,
-      amount: inr(900_000),
-      description: "supplier invoice MTPL/2026/08/9999",
-      requestedAt: TIMELINE.evaluatedAt,
-    };
+    const request = await signActionRequest(
+      {
+        id: "req_forged",
+        nonce: "n-forged-0000dead",
+        actor: agent.id,
+        action: "payment.execute",
+        resource: "bank:hdfc/corporate-api",
+        counterparty: KALYANI,
+        amount: inr(900_000),
+        description: "supplier invoice MTPL/2026/08/9999",
+        requestedAt: TIMELINE.evaluatedAt,
+      },
+      { keyId: fakeAgent.keyId, privateKeyJwk: fakeAgent.privateKeyJwk },
+    );
 
     const decision = await evaluate(
       request,
