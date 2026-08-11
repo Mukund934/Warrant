@@ -1,4 +1,4 @@
-import { digestOf, withoutProof } from "./canonical.js";
+import { canonicalJson, digestOf, withoutProof } from "./canonical.js";
 import { findTrustRoot } from "./chain.js";
 import { packBodyOf } from "./evidence.js";
 import { assess, chainDigestOf } from "./gate.js";
@@ -176,6 +176,46 @@ export async function verifyEvidencePack(
             "The pack is signed by the organisation that produced it",
             outcome.reason ?? "the pack signature is invalid",
           ),
+    );
+  }
+
+  const root = pack.authority.chain[0]!;
+  const inconsistencies: string[] = [];
+  if (pack.summary.verdict !== pack.decision.verdict) {
+    inconsistencies.push(
+      `the summary reads ${pack.summary.verdict} while the signed decision says ${pack.decision.verdict}`,
+    );
+  }
+  if (pack.authority.liablePrincipal.id !== root.liablePrincipal.id) {
+    inconsistencies.push("the named accountable person is not the one the root mandate names");
+  }
+  if (pack.authority.liablePrincipal.name !== root.liablePrincipal.name) {
+    inconsistencies.push(
+      `the summary names ${pack.authority.liablePrincipal.name} while the root mandate names ${root.liablePrincipal.name}`,
+    );
+  }
+  if (pack.organisation.id !== root.organisation.id) {
+    inconsistencies.push("the pack is attributed to a different organisation than the mandates are");
+  }
+  if (canonicalJson(pack.authority.effectiveScope) !== canonicalJson(pack.decision.effectiveScope)) {
+    inconsistencies.push("the scope shown alongside the chain is not the scope the gate evaluated");
+  }
+
+  if (inconsistencies.length > 0) {
+    checks.push(
+      fail(
+        "pack.consistency",
+        "The readable summary matches the signed records beneath it",
+        inconsistencies.join("; "),
+      ),
+    );
+  } else {
+    checks.push(
+      pass(
+        "pack.consistency",
+        "The readable summary matches the signed records beneath it",
+        "the verdict, the accountable person, the organisation and the effective scope all agree with the signed decision and the root mandate",
+      ),
     );
   }
 

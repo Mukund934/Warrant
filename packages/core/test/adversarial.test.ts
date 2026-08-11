@@ -19,7 +19,7 @@ const allowed = scenarios.find((scenario) => scenario.id === "authorised-payment
 const escalation = scenarios.find((scenario) => scenario.id === "delegation-escalation")!;
 
 const verifiedAt = "2026-08-21T09:00:00Z";
-const clone = (pack: EvidencePack): EvidencePack => structuredClone(pack);
+const clone = (pack: EvidencePack): EvidencePack => JSON.parse(JSON.stringify(pack)) as EvidencePack;
 const failing = (checks: { id: string; status: string }[]) =>
   checks.filter((check) => check.status === "fail").map((check) => check.id);
 

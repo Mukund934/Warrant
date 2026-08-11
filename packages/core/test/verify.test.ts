@@ -9,7 +9,7 @@ const allowed = scenarios.find((scenario) => scenario.id === "authorised-payment
 const blocked = scenarios.find((scenario) => scenario.id === "over-limit")!;
 
 const verifiedAt = "2026-08-21T09:00:00Z";
-const clone = (pack: EvidencePack): EvidencePack => structuredClone(pack);
+const clone = (pack: EvidencePack): EvidencePack => JSON.parse(JSON.stringify(pack)) as EvidencePack;
 const failing = (checks: { id: string; status: string }[]) =>
   checks.filter((check) => check.status === "fail").map((check) => check.id);
 
@@ -87,6 +87,22 @@ describe("tamper detection", () => {
     const report = await verifyEvidencePack(pack, { trustRoots, verifiedAt });
     expect(report.result).toBe("INVALID");
     expect(failing(report.checks)).toContain("decision.signature");
+  });
+
+  it("catches a summary that disagrees with the signed decision", async () => {
+    const pack = clone(blocked.pack);
+    pack.summary.verdict = "ALLOW";
+    const report = await verifyEvidencePack(pack, { trustRoots, verifiedAt });
+    expect(report.result).toBe("INVALID");
+    expect(failing(report.checks)).toContain("pack.consistency");
+  });
+
+  it("catches a renamed accountable person in the readable summary", async () => {
+    const pack = clone(allowed.pack);
+    pack.authority.liablePrincipal.name = "A. Nother";
+    const report = await verifyEvidencePack(pack, { trustRoots, verifiedAt });
+    expect(report.result).toBe("INVALID");
+    expect(failing(report.checks)).toContain("pack.consistency");
   });
 
   it("catches a removed ledger entry", async () => {
