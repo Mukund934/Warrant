@@ -13,8 +13,11 @@
   "scripts": {
     "build:core": "npm run build -w @warrant/core",
     "build:verifier": "npm run build -w @warrant/verifier",
-    "build": "npm run build:core && npm run build:verifier && npm run build -w @warrant/web",
+    "build:api": "npm run build:core && npm run build -w @warrant/api",
+    "build": "npm run build:core && npm run build:verifier && npm run build -w @warrant/api && npm run build -w @warrant/web",
     "dev": "npm run build:core && npm run dev -w @warrant/web",
+    "dev:api": "npm run build:api && npm run start -w @warrant/api",
+    "start:api": "npm run start -w @warrant/api",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --build --force",
