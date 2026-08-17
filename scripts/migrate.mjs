@@ -11,8 +11,18 @@ if (!connectionString) {
   process.exit(2);
 }
 
-const client = new pg.Client({ connectionString });
+const caCertificate = process.env.DATABASE_CA_CERT;
+
+const client = new pg.Client({
+  connectionString,
+  ssl: caCertificate ? { ca: caCertificate, rejectUnauthorized: true } : { rejectUnauthorized: false },
+});
 await client.connect();
+
+if (!caCertificate) {
+  console.warn("migrate: connected over TLS without verifying the server certificate");
+  console.warn("  set DATABASE_CA_CERT to the provider CA to enable full verification");
+}
 
 try {
   await client.query(`
