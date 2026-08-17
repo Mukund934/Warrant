@@ -5,6 +5,7 @@ import {
   delegateMandate,
   issueRootMandate,
   mandateDigest,
+  signerFromJwk,
   unsignedPartOf,
   verifyDetached,
 } from "../src/index.js";
@@ -21,9 +22,9 @@ import {
   rootScope,
 } from "../src/fixtures/parties.js";
 
-const principalSigner = { keyId: principalKey.keyId, privateKeyJwk: principalKey.privateKeyJwk };
-const apSigner = { keyId: apAgentKey.keyId, privateKeyJwk: apAgentKey.privateKeyJwk };
-const paySigner = { keyId: payAgentKey.keyId, privateKeyJwk: payAgentKey.privateKeyJwk };
+const principalSigner = signerFromJwk(principalKey.keyId, principalKey.privateKeyJwk);
+const apSigner = signerFromJwk(apAgentKey.keyId, apAgentKey.privateKeyJwk);
+const paySigner = signerFromJwk(payAgentKey.keyId, payAgentKey.privateKeyJwk);
 
 async function root(overrides: Partial<Parameters<typeof issueRootMandate>[0]> = {}) {
   return issueRootMandate(

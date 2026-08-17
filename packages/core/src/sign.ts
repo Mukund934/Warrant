@@ -1,14 +1,33 @@
-import { CompactSign, compactVerify, decodeProtectedHeader } from "jose";
+import { compactVerify, decodeProtectedHeader } from "jose";
 import { canonicalBytes, encodeBase64Url } from "./canonical.js";
 import { importPrivateKey, importPublicKey, SIGNING_ALG } from "./keys.js";
 import type { PrivateKeyJwk, PublicKeyJwk } from "./keys.js";
+import { WarrantError } from "./types.js";
 import type { Proof } from "./types.js";
 
 const PROOF_TYP = "warrant-proof+jws";
+const ECDSA_SHA256 = { name: "ECDSA", hash: "SHA-256" } as const;
 
 export interface SignerIdentity {
   keyId: string;
-  privateKeyJwk: PrivateKeyJwk;
+  sign(signingInput: Uint8Array): Promise<Uint8Array>;
+}
+
+export function signerFromJwk(keyId: string, privateKeyJwk: PrivateKeyJwk): SignerIdentity {
+  let imported: Promise<CryptoKey> | undefined;
+  return {
+    keyId,
+    async sign(signingInput) {
+      imported ??= importPrivateKey(privateKeyJwk).then((key) => {
+        if (!(key instanceof CryptoKey)) {
+          throw new WarrantError("keys/not_signable", "the private JWK did not import as a signing key");
+        }
+        return key;
+      });
+      const input = Uint8Array.from(signingInput);
+      return new Uint8Array(await crypto.subtle.sign(ECDSA_SHA256, await imported, input));
+    },
+  };
 }
 
 function secondsOf(iso: string): number {
@@ -20,19 +39,22 @@ export async function signDetached(
   signer: SignerIdentity,
   createdAt: string,
 ): Promise<Proof> {
-  const key = await importPrivateKey(signer.privateKeyJwk);
-  const compact = await new CompactSign(canonicalBytes(document))
-    .setProtectedHeader({
+  const header = encodeBase64Url(
+    canonicalBytes({
       alg: SIGNING_ALG,
       typ: PROOF_TYP,
       kid: signer.keyId,
       iat: secondsOf(createdAt),
-    })
-    .sign(key);
+    }),
+  );
+  const payload = encodeBase64Url(canonicalBytes(document));
+  const signature = await signer.sign(new TextEncoder().encode(`${header}.${payload}`));
 
-  const [header, , signature] = compact.split(".");
-  if (!header || !signature) {
-    throw new Error("signing produced a malformed JWS");
+  if (signature.length !== 64) {
+    throw new WarrantError(
+      "sign/malformed_signature",
+      `ES256 requires a 64-byte raw R‖S signature; the signer returned ${signature.length} bytes`,
+    );
   }
 
   return {
@@ -40,7 +62,7 @@ export async function signDetached(
     created: createdAt,
     verificationMethod: signer.keyId,
     alg: SIGNING_ALG,
-    jws: `${header}..${signature}`,
+    jws: `${header}..${encodeBase64Url(signature)}`,
   };
 }
 

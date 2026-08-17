@@ -10,12 +10,11 @@ import {
   priyaSharma,
   trustRoots,
 } from "@warrant/core/fixtures";
+import { signerFromJwk } from "@warrant/core";
 import type { GateIdentity, SignerIdentity } from "@warrant/core";
 
-const signerOf = (key: (typeof demoKeys)[number]): SignerIdentity => ({
-  keyId: key.keyId,
-  privateKeyJwk: key.privateKeyJwk,
-});
+const signerOf = (key: (typeof demoKeys)[number]): SignerIdentity =>
+  signerFromJwk(key.keyId, key.privateKeyJwk);
 
 const keyring = new Map<string, SignerIdentity>(
   demoKeys.map((key) => [key.keyId, signerOf(key)]),

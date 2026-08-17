@@ -8,6 +8,7 @@ import {
   issueRootMandate,
   signActionRequest,
   signDetached,
+  signerFromJwk,
   verifyEvidencePack,
 } from "../src/index.js";
 import type { EvidencePack, TrustRoot } from "../src/index.js";
@@ -137,7 +138,7 @@ describe("a pack forged end to end under the attacker's own keys", () => {
         expiresAt: TIMELINE.rootExpiresAt,
         issuedAt: TIMELINE.rootIssuedAt,
       },
-      { keyId: fakePrincipal.keyId, privateKeyJwk: fakePrincipal.privateKeyJwk },
+      signerFromJwk(fakePrincipal.keyId, fakePrincipal.privateKeyJwk),
     );
 
     const revocationBody = { asOf: TIMELINE.revocationAsOf, revoked: [] };
@@ -145,7 +146,7 @@ describe("a pack forged end to end under the attacker's own keys", () => {
       ...revocationBody,
       proof: await signDetached(
         revocationBody,
-        { keyId: fakeRecorder.keyId, privateKeyJwk: fakeRecorder.privateKeyJwk },
+        signerFromJwk(fakeRecorder.keyId, fakeRecorder.privateKeyJwk),
         TIMELINE.revocationAsOf,
       ),
     };
@@ -162,7 +163,7 @@ describe("a pack forged end to end under the attacker's own keys", () => {
         description: "supplier invoice MTPL/2026/08/9999",
         requestedAt: TIMELINE.evaluatedAt,
       },
-      { keyId: fakeAgent.keyId, privateKeyJwk: fakeAgent.privateKeyJwk },
+      signerFromJwk(fakeAgent.keyId, fakeAgent.privateKeyJwk),
     );
 
     const decision = await evaluate(
@@ -173,7 +174,7 @@ describe("a pack forged end to end under the attacker's own keys", () => {
         revocation,
         inputs: { evaluatedAt: TIMELINE.evaluatedAt, replayStatus: "fresh" },
       },
-      { id: "gate:forged", signer: { keyId: fakeGate.keyId, privateKeyJwk: fakeGate.privateKeyJwk } },
+      { id: "gate:forged", signer: signerFromJwk(fakeGate.keyId, fakeGate.privateKeyJwk) },
     );
 
     const ledger = new Ledger();
@@ -181,7 +182,7 @@ describe("a pack forged end to end under the attacker's own keys", () => {
     await ledger.append("action.requested", request.id, request, request.requestedAt);
     await ledger.append("decision.recorded", decision.id, decision, decision.evaluatedAt);
     const head = await ledger.signHead(
-      { keyId: fakeRecorder.keyId, privateKeyJwk: fakeRecorder.privateKeyJwk },
+      signerFromJwk(fakeRecorder.keyId, fakeRecorder.privateKeyJwk),
       TIMELINE.recordedAt,
     );
 
@@ -197,7 +198,7 @@ describe("a pack forged end to end under the attacker's own keys", () => {
         revocation,
         trustRoots: roots,
       },
-      { keyId: fakeRecorder.keyId, privateKeyJwk: fakeRecorder.privateKeyJwk },
+      signerFromJwk(fakeRecorder.keyId, fakeRecorder.privateKeyJwk),
     );
 
     return { pack, roots };

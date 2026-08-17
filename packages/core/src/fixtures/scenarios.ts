@@ -4,7 +4,7 @@ import { evaluate } from "../gate.js";
 import type { GateIdentity } from "../gate.js";
 import { Ledger } from "../ledger.js";
 import { delegateMandate, issueRootMandate } from "../mandate.js";
-import { signDetached } from "../sign.js";
+import { signDetached, signerFromJwk } from "../sign.js";
 import type { SignerIdentity } from "../sign.js";
 import type {
   ActionRequest,
@@ -55,10 +55,8 @@ export const trustRoots: TrustRoot[] = demoKeys.map((key) => ({
   publicKeyJwk: key.publicKeyJwk,
 }));
 
-const signerOf = (key: (typeof demoKeys)[number]): SignerIdentity => ({
-  keyId: key.keyId,
-  privateKeyJwk: key.privateKeyJwk,
-});
+const signerOf = (key: (typeof demoKeys)[number]): SignerIdentity =>
+  signerFromJwk(key.keyId, key.privateKeyJwk);
 
 const gate: GateIdentity = { id: "gate:meridian-ap-01", signer: signerOf(gateKey) };
 const recorder = signerOf(ledgerKey);
