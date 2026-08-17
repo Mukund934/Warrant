@@ -23,6 +23,8 @@ export interface EvidenceRepository {
 export interface LedgerRepository {
   append(record: Omit<LedgerEntry, "seq" | "prevDigest" | "digest">): Promise<LedgerEntry>;
   entries(): Promise<LedgerEntry[]>;
+  head(): Promise<LedgerEntry | undefined>;
+  count(): Promise<number>;
 }
 
 export type ReplayScope = "process" | "deployment";

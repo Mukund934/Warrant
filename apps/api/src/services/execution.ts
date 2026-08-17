@@ -89,12 +89,12 @@ async function signSegment(
 }
 
 export async function takeCheckpoint(repositories: Repositories): Promise<Checkpoint> {
-  const entries = await repositories.ledger.entries();
-  if (entries.length === 0) {
+  const latest = await repositories.ledger.head();
+  if (!latest) {
     throw unprocessable("ledger_empty", "there is nothing to commit to yet");
   }
   const takenAt = nowIso();
-  const head = await signSegment(entries, entries.length, takenAt);
+  const head = await signSegment([latest], await repositories.ledger.count(), takenAt);
   return checkpointFor(head, CHECKPOINT_ORIGIN, takenAt, recorder);
 }
 
@@ -176,7 +176,7 @@ export async function submitAction(
     payloadDigest: await digestOf(decision),
   });
 
-  const total = (await repositories.ledger.entries()).length;
+  const total = await repositories.ledger.count();
   const segment = [requestEntry, decisionEntry];
 
   const pack = await buildEvidencePack(

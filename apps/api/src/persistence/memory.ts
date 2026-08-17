@@ -86,6 +86,14 @@ export class InMemoryLedgerRepository implements LedgerRepository {
   async entries(): Promise<LedgerEntry[]> {
     return [...this.rows];
   }
+
+  async head(): Promise<LedgerEntry | undefined> {
+    return this.rows[this.rows.length - 1];
+  }
+
+  async count(): Promise<number> {
+    return this.rows.length;
+  }
 }
 
 export class InMemoryNonceStore implements NonceStore {
