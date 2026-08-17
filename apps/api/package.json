@@ -14,11 +14,13 @@
   "dependencies": {
     "@warrant/core": "0.1.0",
     "express": "^5.2.1",
+    "pg": "^8.23.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",
-    "supertest": "^7.2.2",
-    "@types/supertest": "^6.0.3"
+    "@types/pg": "^8.21.0",
+    "@types/supertest": "^6.0.3",
+    "supertest": "^7.2.2"
   }
 }

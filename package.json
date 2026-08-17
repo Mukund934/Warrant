@@ -24,7 +24,8 @@
     "export:packs": "npm run build:core --silent && node scripts/export-packs.mjs",
     "verify": "node packages/verifier/dist/cli.js",
     "export:conformance": "npm run build:core --silent && node scripts/export-conformance.mjs",
-    "conformance": "npm run build:verifier --silent && node packages/verifier/dist/cli.js conformance ./conformance"
+    "conformance": "npm run build:verifier --silent && node packages/verifier/dist/cli.js conformance ./conformance",
+    "migrate": "node --env-file=apps/api/.env scripts/migrate.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.15.3",
