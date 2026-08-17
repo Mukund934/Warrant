@@ -11,7 +11,7 @@ import {
   verifyDetached,
 } from "../src/index.js";
 import type { Proof, SignerIdentity } from "../src/index.js";
-import { importPrivateKey } from "../src/keys.js";
+import { importPrivateKey, thumbprintOf } from "../src/keys.js";
 import type { KeyPairRecord } from "../src/keys.js";
 
 const document = { action: "payment.execute", amount: { currency: "INR", minor: 420_000 } };
@@ -232,6 +232,26 @@ describe("the embedded public key", () => {
     const proof = await signDetached(document, opaque, createdAt);
     expect(headerOf(proof).jwk).toBeUndefined();
     expect(await verifyDetached(document, proof, pair.publicKeyJwk)).toEqual({ valid: true });
+  });
+});
+
+describe("the keys this project publishes", () => {
+  it("never carries private material in a trust root", async () => {
+    const { trustRoots } = await import("../src/fixtures/scenarios.js");
+    expect(trustRoots.length).toBeGreaterThan(0);
+    for (const root of trustRoots) {
+      expect(root.publicKeyJwk).not.toHaveProperty("d");
+      expect(root).not.toHaveProperty("privateKeyJwk");
+    }
+    expect(JSON.stringify(trustRoots)).not.toMatch(/"d"\s*:/);
+  });
+
+  it("gives every trust root a key id derived from its own thumbprint", async () => {
+    const { trustRoots } = await import("../src/fixtures/scenarios.js");
+    for (const root of trustRoots) {
+      const thumbprint = await thumbprintOf(root.publicKeyJwk);
+      expect(root.keyId).toContain(thumbprint.slice(0, 16));
+    }
   });
 });
 

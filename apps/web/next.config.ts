@@ -5,6 +5,9 @@ const development = process.env.NODE_ENV === "development";
 const config: NextConfig = {
   poweredByHeader: false,
   reactStrictMode: true,
+  async rewrites() {
+    return [{ source: "/.well-known/jwks.json", destination: "/api/jwks" }];
+  },
   async headers() {
     return [
       {
