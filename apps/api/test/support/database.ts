@@ -38,16 +38,17 @@ export class TestSchema {
 
   async create(): Promise<void> {
     const bootstrap = this.open(undefined, 1);
-    const migration = await readFile(
-      new URL("../../migrations/001_initial.sql", import.meta.url),
-      "utf8",
+    const migrations = await Promise.all(
+      ["001_initial.sql", "002_append_only_grants.sql"].map((file) =>
+        readFile(new URL(`../../migrations/${file}`, import.meta.url), "utf8"),
+      ),
     );
 
     await bootstrap.query(`create schema ${this.name}`);
     const client = await bootstrap.connect();
     try {
       await client.query(`set search_path to ${this.name}`);
-      await client.query(migration);
+      for (const migration of migrations) await client.query(migration);
       await client.query("set search_path to public");
     } finally {
       client.release();

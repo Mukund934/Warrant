@@ -17,6 +17,7 @@
     "build": "npm run build:core && npm run build:verifier && npm run build -w @warrant/api && npm run build -w @warrant/web",
     "dev": "npm run build:core && npm run dev -w @warrant/web",
     "dev:api": "npm run build:api && npm run start -w @warrant/api",
+    "dev:api:db": "npm run build:api && node --env-file=apps/api/.env apps/api/dist/server.js",
     "start:api": "npm run start -w @warrant/api",
     "test": "vitest run",
     "test:watch": "vitest",

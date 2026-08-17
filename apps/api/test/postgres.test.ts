@@ -337,4 +337,38 @@ withDatabase("the database refuses to rewrite a recorded ledger", () => {
 
     await expect(ledger.entries()).rejects.toThrow(/does not match the digest/);
   }, 60_000);
+
+  it("withholds rewrite privileges from the application role the API is meant to hold", async () => {
+    const granted = async (table: string, privilege: string) => {
+      const answer = await rewritten.admin.query<{ allowed: boolean }>(
+        "select has_table_privilege('warrant_api', $1, $2) as allowed",
+        [`${rewritten.name}.${table}`, privilege],
+      );
+      return answer.rows[0]?.allowed;
+    };
+
+    expect(await granted("ledger_entries", "INSERT")).toBe(true);
+    expect(await granted("ledger_entries", "SELECT")).toBe(true);
+    expect(await granted("ledger_entries", "UPDATE")).toBe(false);
+    expect(await granted("ledger_entries", "DELETE")).toBe(false);
+    expect(await granted("ledger_entries", "TRUNCATE")).toBe(false);
+
+    expect(await granted("evidence_packs", "UPDATE")).toBe(false);
+    expect(await granted("evidence_packs", "DELETE")).toBe(false);
+
+    expect(await granted("mandates", "UPDATE")).toBe(true);
+    expect(await granted("mandates", "DELETE")).toBe(false);
+  }, 60_000);
+
+  it("does not let that role log in yet, so today only the triggers bind", async () => {
+    const role = await rewritten.admin.query<{ rolcanlogin: boolean }>(
+      "select rolcanlogin from pg_roles where rolname = 'warrant_api'",
+    );
+    const connected = await rewritten.admin.query<{ user: string }>(
+      "select current_user as user",
+    );
+
+    expect(role.rows[0]?.rolcanlogin).toBe(false);
+    expect(connected.rows[0]?.user).not.toBe("warrant_api");
+  }, 60_000);
 });
