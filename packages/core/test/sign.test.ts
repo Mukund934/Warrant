@@ -48,6 +48,7 @@ describe("the signer seam", () => {
       document,
       {
         keyId: pair.keyId,
+        publicKeyJwk: pair.publicKeyJwk,
         async sign(signingInput) {
           return new Uint8Array(
             await crypto.subtle.sign(
@@ -145,6 +146,91 @@ describe("the payload digest", () => {
     const pair = await createKeyPair("Legacy", "gate");
     const proof = await legacyProof(pair, document);
     expect(proof.payloadDigest).toBeUndefined();
+    expect(await verifyDetached(document, proof, pair.publicKeyJwk)).toEqual({ valid: true });
+  });
+});
+
+describe("the embedded public key", () => {
+  function headerOf(proof: Proof): Record<string, unknown> {
+    const [header] = proof.jws.split("..");
+    return JSON.parse(new TextDecoder().decode(decodeBase64Url(header!)));
+  }
+
+  async function reheader(proof: Proof, mutate: (h: Record<string, unknown>) => void): Promise<Proof> {
+    const header = headerOf(proof);
+    mutate(header);
+    const [, signature] = proof.jws.split("..");
+    return { ...proof, jws: `${encodeBase64Url(canonicalBytes(header))}..${signature}` };
+  }
+
+  it("carries the signer's public key so a verifier needs no network call", async () => {
+    const pair = await createKeyPair("Embedded", "gate");
+    const proof = await signDetached(document, signerFromJwk(pair.keyId, pair.privateKeyJwk), createdAt);
+    expect(headerOf(proof).jwk).toEqual(pair.publicKeyJwk);
+  });
+
+  it("never carries private key material", async () => {
+    const pair = await createKeyPair("No leak", "gate");
+    const proof = await signDetached(document, signerFromJwk(pair.keyId, pair.privateKeyJwk), createdAt);
+    expect(JSON.stringify(headerOf(proof).jwk)).not.toContain(pair.privateKeyJwk.d);
+    expect((headerOf(proof).jwk as Record<string, unknown>).d).toBeUndefined();
+  });
+
+  it("refuses a proof whose embedded key is not the key it is checked against", async () => {
+    const real = await createKeyPair("Real", "gate");
+    const attacker = await createKeyPair("Attacker", "gate");
+    const proof = await signDetached(document, signerFromJwk(real.keyId, real.privateKeyJwk), createdAt);
+    const substituted = await reheader(proof, (h) => {
+      h.jwk = attacker.publicKeyJwk;
+    });
+
+    const outcome = await verifyDetached(document, substituted, real.publicKeyJwk);
+    expect(outcome.valid).toBe(false);
+    expect(outcome.reason).toMatch(/not the key this proof was checked against/);
+  });
+
+  it("refuses a header that smuggles private key material", async () => {
+    const pair = await createKeyPair("Smuggler", "gate");
+    const proof = await signDetached(document, signerFromJwk(pair.keyId, pair.privateKeyJwk), createdAt);
+    const leaky = await reheader(proof, (h) => {
+      h.jwk = pair.privateKeyJwk;
+    });
+
+    const outcome = await verifyDetached(document, leaky, pair.publicKeyJwk);
+    expect(outcome.valid).toBe(false);
+    expect(outcome.reason).toMatch(/private key material/);
+  });
+
+  it("refuses a header whose embedded key is not a P-256 public JWK", async () => {
+    const pair = await createKeyPair("Malformed", "gate");
+    const proof = await signDetached(document, signerFromJwk(pair.keyId, pair.privateKeyJwk), createdAt);
+    const malformed = await reheader(proof, (h) => {
+      h.jwk = { kty: "EC", crv: "P-256" };
+    });
+
+    const outcome = await verifyDetached(document, malformed, pair.publicKeyJwk);
+    expect(outcome.valid).toBe(false);
+    expect(outcome.reason).toMatch(/not a P-256 public JWK/);
+  });
+
+  it("still verifies a proof from a signer that does not publish its public key", async () => {
+    const pair = await createKeyPair("Opaque", "gate");
+    const key = await importPrivateKey(pair.privateKeyJwk);
+    const opaque: SignerIdentity = {
+      keyId: pair.keyId,
+      async sign(signingInput) {
+        return new Uint8Array(
+          await crypto.subtle.sign(
+            { name: "ECDSA", hash: "SHA-256" },
+            key as CryptoKey,
+            Uint8Array.from(signingInput),
+          ),
+        );
+      },
+    };
+
+    const proof = await signDetached(document, opaque, createdAt);
+    expect(headerOf(proof).jwk).toBeUndefined();
     expect(await verifyDetached(document, proof, pair.publicKeyJwk)).toEqual({ valid: true });
   });
 });

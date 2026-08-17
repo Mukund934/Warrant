@@ -1,6 +1,6 @@
 import { compactVerify, decodeProtectedHeader } from "jose";
 import { canonicalBytes, encodeBase64Url, sha256 } from "./canonical.js";
-import { importPrivateKey, importPublicKey, SIGNING_ALG } from "./keys.js";
+import { importPrivateKey, importPublicKey, publicPartOf, thumbprintOf, SIGNING_ALG } from "./keys.js";
 import type { PrivateKeyJwk, PublicKeyJwk } from "./keys.js";
 import { WarrantError } from "./types.js";
 import type { Proof } from "./types.js";
@@ -10,6 +10,7 @@ const ECDSA_SHA256 = { name: "ECDSA", hash: "SHA-256" } as const;
 
 export interface SignerIdentity {
   keyId: string;
+  publicKeyJwk?: PublicKeyJwk;
   sign(signingInput: Uint8Array): Promise<Uint8Array>;
 }
 
@@ -17,6 +18,7 @@ export function signerFromJwk(keyId: string, privateKeyJwk: PrivateKeyJwk): Sign
   let imported: Promise<CryptoKey> | undefined;
   return {
     keyId,
+    publicKeyJwk: publicPartOf(privateKeyJwk),
     async sign(signingInput) {
       imported ??= importPrivateKey(privateKeyJwk).then((key) => {
         if (!(key instanceof CryptoKey)) {
@@ -48,6 +50,7 @@ export async function signDetached(
       kid: signer.keyId,
       iat: secondsOf(createdAt),
       payloadDigest,
+      ...(signer.publicKeyJwk ? { jwk: publicPartOf(signer.publicKeyJwk) } : {}),
     }),
   );
   const payload = encodeBase64Url(payloadBytes);
@@ -103,6 +106,27 @@ export async function verifyDetached(
   }
   if ((protectedHeader as { iat?: number }).iat !== secondsOf(proof.created)) {
     return { valid: false, reason: "signed timestamp does not match the stated creation time" };
+  }
+
+  const embedded = (protectedHeader as { jwk?: unknown }).jwk;
+  if (embedded !== undefined) {
+    const candidate = embedded as Partial<PrivateKeyJwk>;
+    if (!candidate || typeof candidate !== "object" || !candidate.x || !candidate.y) {
+      return { valid: false, reason: "the protected header carries a key that is not a P-256 public JWK" };
+    }
+    if (candidate.d !== undefined) {
+      return { valid: false, reason: "the protected header carries private key material" };
+    }
+    const [embeddedThumbprint, trustedThumbprint] = await Promise.all([
+      thumbprintOf(candidate as PublicKeyJwk),
+      thumbprintOf(publicKeyJwk),
+    ]);
+    if (embeddedThumbprint !== trustedThumbprint) {
+      return {
+        valid: false,
+        reason: "the key embedded in the proof is not the key this proof was checked against",
+      };
+    }
   }
 
   const payloadBytes = canonicalBytes(document);
