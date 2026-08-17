@@ -26,6 +26,7 @@ export const proofSchema = z.object({
   created: isoDateTime,
   verificationMethod: z.string().min(1),
   alg: z.literal("ES256"),
+  payloadDigest: z.string().regex(/^sha256:[A-Za-z0-9_-]{43}$/).optional(),
   jws: z.string().regex(/^[A-Za-z0-9_-]+\.\.[A-Za-z0-9_-]+$/, "must be a detached compact JWS"),
 });
 

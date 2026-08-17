@@ -1,5 +1,5 @@
 import { compactVerify, decodeProtectedHeader } from "jose";
-import { canonicalBytes, encodeBase64Url } from "./canonical.js";
+import { canonicalBytes, encodeBase64Url, sha256 } from "./canonical.js";
 import { importPrivateKey, importPublicKey, SIGNING_ALG } from "./keys.js";
 import type { PrivateKeyJwk, PublicKeyJwk } from "./keys.js";
 import { WarrantError } from "./types.js";
@@ -39,15 +39,18 @@ export async function signDetached(
   signer: SignerIdentity,
   createdAt: string,
 ): Promise<Proof> {
+  const payloadBytes = canonicalBytes(document);
+  const payloadDigest = await sha256(payloadBytes);
   const header = encodeBase64Url(
     canonicalBytes({
       alg: SIGNING_ALG,
       typ: PROOF_TYP,
       kid: signer.keyId,
       iat: secondsOf(createdAt),
+      payloadDigest,
     }),
   );
-  const payload = encodeBase64Url(canonicalBytes(document));
+  const payload = encodeBase64Url(payloadBytes);
   const signature = await signer.sign(new TextEncoder().encode(`${header}.${payload}`));
 
   if (signature.length !== 64) {
@@ -62,6 +65,7 @@ export async function signDetached(
     created: createdAt,
     verificationMethod: signer.keyId,
     alg: SIGNING_ALG,
+    payloadDigest,
     jws: `${header}..${encodeBase64Url(signature)}`,
   };
 }
@@ -101,7 +105,24 @@ export async function verifyDetached(
     return { valid: false, reason: "signed timestamp does not match the stated creation time" };
   }
 
-  const encodedPayload = encodeBase64Url(canonicalBytes(document));
+  const payloadBytes = canonicalBytes(document);
+  const signedDigest = (protectedHeader as { payloadDigest?: unknown }).payloadDigest;
+  if (typeof signedDigest === "string") {
+    if (proof.payloadDigest !== undefined && proof.payloadDigest !== signedDigest) {
+      return { valid: false, reason: "stated payload digest does not match the signed one" };
+    }
+    const computed = await sha256(payloadBytes);
+    if (computed !== signedDigest) {
+      return {
+        valid: false,
+        reason: `document does not match the signed payload digest: signed ${signedDigest}, computed ${computed}`,
+      };
+    }
+  } else if (proof.payloadDigest !== undefined) {
+    return { valid: false, reason: "proof states a payload digest the signature does not cover" };
+  }
+
+  const encodedPayload = encodeBase64Url(payloadBytes);
   try {
     const key = await importPublicKey(publicKeyJwk);
     await compactVerify(`${header}.${encodedPayload}.${signature}`, key, {
