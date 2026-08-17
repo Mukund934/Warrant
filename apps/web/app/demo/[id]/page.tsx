@@ -176,6 +176,11 @@ export default async function ScenarioPage({ params }: { params: Promise<{ id: s
       <aside className="mt-14 rounded-lg border border-line bg-ink-raised px-5 py-4">
         <Label>What this scenario shows</Label>
         <p className="mt-2 max-w-3xl text-[14.5px] leading-relaxed text-text">{scenario.takeaway}</p>
+        <p className="mt-3 max-w-3xl text-[13px] leading-relaxed text-text-faint">
+          The signatures, the authority checks and the verification are real and reproducible. The
+          organisation, its people, its agents and every payment shown are invented for this
+          demonstration, and the signing keys are published in the repository.
+        </p>
       </aside>
     </Section>
   );

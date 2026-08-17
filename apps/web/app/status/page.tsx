@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Eyebrow, Label, Mono, Note, Section } from "@/components/primitives";
 
-export const metadata = { title: "Prototype status" };
+export const metadata = { title: "What is real" };
 
 const REAL = [
   "ES256 signatures on every mandate, request, decision, ledger head, revocation snapshot and pack",
@@ -11,7 +11,7 @@ const REAL = [
   "Agents proving key possession by signing their own requests",
   "A hash-chained ledger with a signed head",
   "Offline verification that recomputes the verdict instead of reading it",
-  "86 tests, including chain splicing, role confusion and an end-to-end forged pack",
+  "135 tests, including chain splicing, role confusion and an end-to-end forged pack",
 ];
 
 const SIMULATED = [
@@ -113,7 +113,7 @@ export default function StatusPage() {
   return (
     <Section className="py-10 sm:py-14">
       <header className="mb-10 max-w-3xl">
-        <Eyebrow>Prototype status</Eyebrow>
+        <Eyebrow>Project status</Eyebrow>
         <h1 className="text-[28px] font-semibold leading-tight tracking-tight sm:text-[34px]">
           What is real here, what is invented, and what does not exist
         </h1>

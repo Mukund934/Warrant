@@ -280,7 +280,7 @@ export default async function HowItWorksPage() {
               open question the whole idea rests on, and it has not been tested with a single real
               buyer yet.{" "}
               <Link href="/status" className="text-seal hover:underline">
-                That is stated plainly on the prototype status page.
+                That is stated plainly on the project status page.
               </Link>
             </Note>
             <Link

@@ -16,7 +16,13 @@ const NAV = [
   { href: "/demo", label: "Demonstrator" },
   { href: "/verify", label: "Verify evidence" },
   { href: "/technical", label: "Technical notes" },
-  { href: "/status", label: "Prototype status" },
+  { href: "/security", label: "Security" },
+];
+
+const FOOTER_LINKS = [
+  { href: "/about", label: "About" },
+  { href: "/security", label: "Security" },
+  { href: "/status", label: "What is real and what is not" },
 ];
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -51,9 +57,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               ))}
             </nav>
 
-            <span className="ml-auto hidden shrink-0 rounded-full border border-line px-2.5 py-1 text-[11px] uppercase tracking-[0.13em] text-text-faint sm:inline">
-              Prototype
-            </span>
+            <a
+              href="https://github.com/Mukund934/Warrant"
+              className="ml-auto hidden shrink-0 rounded-full border border-line px-2.5 py-1 text-[11px] uppercase tracking-[0.13em] text-text-faint transition-colors hover:border-line-strong hover:text-text-muted sm:inline"
+              rel="noreferrer noopener"
+            >
+              Source
+            </a>
           </div>
         </header>
 
@@ -63,18 +73,19 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <div className="mx-auto flex max-w-6xl flex-col gap-6 px-5 py-10 text-[13px] text-text-faint sm:flex-row sm:items-start sm:justify-between">
             <div className="max-w-md space-y-2">
               <p className="text-text-muted">
-                Warrant is a validation-stage technical demonstrator. It has no customers, no production
-                deployment and no external audit.
+                Warrant — an independent project by Mukund Thakur.
               </p>
               <p>
-                Every organisation, person, agent and payment shown here is invented for the
-                demonstration.
+                Early stage, built in the open. The cryptography and the verification are real; the
+                organisations and payments in the demonstration are not.
               </p>
             </div>
             <div className="flex flex-wrap gap-x-6 gap-y-2">
-              <Link href="/status" className="transition-colors hover:text-text">
-                What is real and what is not
-              </Link>
+              {FOOTER_LINKS.map((item) => (
+                <Link key={item.href} href={item.href} className="transition-colors hover:text-text">
+                  {item.label}
+                </Link>
+              ))}
               <a
                 href="https://github.com/Mukund934/Warrant"
                 className="transition-colors hover:text-text"

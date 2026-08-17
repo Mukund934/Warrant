@@ -324,7 +324,7 @@ your browser  ────────────┘   packages/core   mandates
         </section>
 
         <section>
-          <h2 className="mb-4 text-[19px] font-semibold tracking-tight">Prototype against production</h2>
+          <h2 className="mb-4 text-[19px] font-semibold tracking-tight">This deployment against production</h2>
           <div className="overflow-x-auto rounded-lg border border-line">
             <table className="w-full min-w-[46rem] border-collapse bg-surface text-left">
               <thead>
