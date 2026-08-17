@@ -86,6 +86,24 @@ node packages/verifier/dist/cli.js evidence/authorised-payment.json \\
         </section>
 
         <section>
+          <h2 className="mb-4 text-[19px] font-semibold tracking-tight">Building your own verifier</h2>
+          <p className="mb-4 text-[14.5px] leading-relaxed text-text-muted">
+            A format nobody else can implement is not a format. The repository ships a conformance
+            suite — genuine packs for all three verdicts, plus tampered packs that must be rejected,
+            each with the outcome it is required to produce declared in a manifest.
+          </p>
+          <Code>{`npm run conformance
+
+# or point the verifier at the directory yourself
+node packages/verifier/dist/cli.js conformance ./conformance`}</Code>
+          <p className="mt-4 text-[14.5px] leading-relaxed text-text-muted">
+            An independent implementation can run against the same vectors and compare. They are
+            checked into the repository as fixed artifacts rather than regenerated, so the signatures
+            are stable and a disagreement means a real difference in behaviour.
+          </p>
+        </section>
+
+        <section>
           <h2 className="mb-4 text-[19px] font-semibold tracking-tight">Where trust roots come from today</h2>
           <p className="text-[14.5px] leading-relaxed text-text-muted">
             This is the honest gap in the current build. Trust roots are published at{" "}
