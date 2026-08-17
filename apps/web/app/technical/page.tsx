@@ -87,7 +87,7 @@ const REQUIREMENTS = [
 ];
 
 const ENDPOINTS = [
-  ["GET", "/health", "Reports that the service runs without a database"],
+  ["GET", "/health", "Reports whether a database is configured, whether it answers, and the replay scope that follows"],
   ["GET", "/v1/trust-roots", "The published public keys, private halves never leave the fixtures"],
   ["GET", "/v1/scenarios", "The eight fixed demonstration scenarios"],
   ["GET", "/v1/evidence/:id", "An evidence pack, whether fixture or one you just produced"],
@@ -96,6 +96,7 @@ const ENDPOINTS = [
   ["POST", "/v1/mandates/:id/delegations", "Delegate; refuses with 422 and names the violation if it widens"],
   ["POST", "/v1/mandates/:id/revocation", "Withdraw a mandate"],
   ["POST", "/v1/actions", "Run an action through the gate and record the evidence"],
+  ["POST", "/v1/checkpoint", "Sign a checkpoint over the current ledger head, on demand"],
 ];
 
 const STATE_STYLE = {
@@ -112,13 +113,13 @@ const PROTOTYPE_VS_PRODUCTION = [
   },
   {
     area: "Storage",
-    prototype: "None. Scenarios are recomputed on each cold start and agents hold their own mandates.",
+    prototype: "This deployment holds nothing between restarts. Postgres implementations of all four repositories exist and are tested against a real database, but no connection string is set here.",
     production: "Postgres as the system of record, object storage for record blobs, an analytics store for decision volume.",
   },
   {
     area: "Replay protection",
-    prototype: "Nonce novelty is tracked per process. The store declares its own scope and the service reports it on /health, so the boundary is inspectable rather than assumed.",
-    production: "A shared store with a bounded acceptance window and idempotency keys per action.",
+    prototype: "Nonce novelty is tracked per process here. The store declares its own scope and the service reports it on /health, so the boundary is inspectable rather than assumed.",
+    production: "The Postgres store claims a nonce with one insert against a unique constraint, so two instances racing the same nonce cannot both accept it. It declares itself deployment-scoped.",
   },
   {
     area: "Ledger anchoring",
@@ -214,7 +215,7 @@ packages/verifier  CLI  ──┤         │
 your browser  ────────────┘   packages/core   mandates · scope algebra · gate · evidence
                                     │
                                     ▼
-                              repositories    in-memory today, Postgres later`}
+                              repositories    in-memory or Postgres, chosen at startup`}
           </pre>
           <div className="overflow-x-auto rounded-lg border border-line">
             <table className="w-full min-w-[40rem] border-collapse bg-surface text-left">
@@ -245,12 +246,13 @@ your browser  ────────────┘   packages/core   mandates
           <div className="mt-5">
             <Label>Persistence is a seam, not a dependency</Label>
             <p className="mt-2 max-w-3xl text-[13.5px] leading-relaxed text-text-muted">
-              There is no database. State sits behind four small interfaces —{" "}
-              <Mono>MandateRepository</Mono>, <Mono>EvidenceRepository</Mono>,{" "}
-              <Mono>LedgerRepository</Mono> and <Mono>NonceStore</Mono> — with in-memory
-              implementations. Each maps to one table when Postgres arrives, and none of the
-              authority model depends on which implementation is behind it. A fresh clone runs with
-              no credentials, no provisioning and no environment variables.
+              State sits behind four small interfaces — <Mono>MandateRepository</Mono>,{" "}
+              <Mono>EvidenceRepository</Mono>, <Mono>LedgerRepository</Mono> and{" "}
+              <Mono>NonceStore</Mono> — each with an in-memory and a Postgres implementation, chosen
+              at startup by whether a connection string is present. None of the authority model
+              depends on which one is behind it: <Mono>packages/core</Mono> and the verifier never
+              learn that a database exists. A fresh clone still runs with no credentials, no
+              provisioning and no environment variables.
             </p>
           </div>
         </section>

@@ -117,10 +117,17 @@ Issuing, delegating, gate evaluation and evidence generation are server-side, in
 Verification deliberately is not confined there — a relying party has to be able to check evidence on
 their own machine, so the same verification code runs in the service, in the CLI and in the browser.
 
-There is no database. State sits behind four interfaces — `MandateRepository`, `EvidenceRepository`,
-`LedgerRepository` and `NonceStore` — with in-memory implementations. Each maps to one table when
-PostgreSQL is introduced, and nothing in the authority model depends on which implementation is
-behind them.
+State sits behind four interfaces — `MandateRepository`, `EvidenceRepository`, `LedgerRepository`
+and `NonceStore` — each with an in-memory and a PostgreSQL implementation. The service picks
+between them at startup depending on whether `DATABASE_URL` is set, and nothing in the authority
+model depends on which is behind them: `packages/core` and the verifier have no database code in
+them at all. A fresh clone runs with no credentials and no provisioning.
+
+The Postgres store is not just the same code against a table. Replay protection is a single insert
+against a unique constraint, so two instances cannot both accept one nonce; the ledger reads its
+head under a lock and appends in the same transaction, so simultaneous writes produce one chain
+rather than a fork; and `ledger_entries` and `evidence_packs` refuse `UPDATE` and `DELETE` at the
+database, not by convention.
 
 ## Cryptography
 

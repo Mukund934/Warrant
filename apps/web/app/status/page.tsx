@@ -13,7 +13,10 @@ const REAL = [
   "A payload digest bound into every proof header, so a canonicalisation mismatch names the digests that differed instead of reporting a generic signature failure",
   "A hash-chained ledger with a signed head",
   "Offline verification that recomputes the verdict instead of reading it",
-  "135 tests, including chain splicing, role confusion and an end-to-end forged pack",
+  "A published key set, key rotation that retires a key without invalidating history, and a conformance suite of committed golden vectors",
+  "Signed ledger checkpoints and RFC 6962 inclusion proofs that verify offline",
+  "PostgreSQL implementations of all four repositories, with replay protection enforced by a database constraint rather than by application code",
+  "230 tests, including chain splicing, role confusion, an end-to-end forged pack, and concurrent writers racing the same ledger",
 ];
 
 const SIMULATED = [
@@ -24,10 +27,10 @@ const SIMULATED = [
 ];
 
 const NOT_BUILT = [
-  "Any persistence — nothing is stored between requests",
+  "Persistence on this deployment — the database code is written and tested, but this instance is not pointed at one, so it stores nothing between restarts",
   "Authentication, tenancy or access control of any kind",
-  "Key rotation, key discovery, or a way to obtain another organisation's keys",
-  "External anchoring of the ledger to a transparency log",
+  "A way to obtain another organisation's keys automatically — the key set is published, but the URL is not yet named inside signed artifacts",
+  "Submission of checkpoints to a public transparency log — the checkpoints and inclusion proofs exist, nothing is sent anywhere",
   "Adapters for MCP, SPIFFE, OAuth token exchange or any real agent runtime",
   "A signed human-approval artifact behind the ESCALATE verdict",
   "Checking the principal's own entitlements as a second axis",
