@@ -117,7 +117,7 @@ const PROTOTYPE_VS_PRODUCTION = [
   },
   {
     area: "Replay protection",
-    prototype: "Nonce novelty is an input to the gate, tested in the suite but not shared between server instances.",
+    prototype: "Nonce novelty is tracked per process. The store declares its own scope and the service reports it on /health, so the boundary is inspectable rather than assumed.",
     production: "A shared store with a bounded acceptance window and idempotency keys per action.",
   },
   {

@@ -9,6 +9,8 @@ const REAL = [
   "Scope narrowing as a partial order, enforced at issuance and re-checked at evaluation",
   "The gate's full check pipeline, running every check rather than stopping at the first failure",
   "Agents proving key possession by signing their own requests",
+  "A request freshness window and clock-skew tolerance, both signed into the decision so a later reader applies the same window the gate did",
+  "A payload digest bound into every proof header, so a canonicalisation mismatch names the digests that differed instead of reporting a generic signature failure",
   "A hash-chained ledger with a signed head",
   "Offline verification that recomputes the verdict instead of reading it",
   "135 tests, including chain splicing, role confusion and an end-to-end forged pack",
