@@ -7,6 +7,7 @@ const ELSEWHERE = [
   { href: "/how-it-works", label: "How it works", detail: "The mandate, the gate and the evidence" },
   { href: "/demo", label: "Demonstrator", detail: "Eight scenarios, three verdicts" },
   { href: "/verify", label: "Verify evidence", detail: "Check a pack in your own browser" },
+  { href: "/docs", label: "Documentation", detail: "Verify evidence you did not produce" },
   { href: "/technical", label: "Technical notes", detail: "Formats, checks and standards" },
   { href: "/security", label: "Security", detail: "Trust model and known limitations" },
 ];
