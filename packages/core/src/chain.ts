@@ -2,7 +2,8 @@ import { narrows } from "./scope.js";
 import { effectiveScope } from "./scope.js";
 import { mandateDigest, unsignedPartOf } from "./mandate.js";
 import { verifyDetached } from "./sign.js";
-import type { Check, Mandate, RevocationSnapshot, Scope, TrustRoot } from "./types.js";
+import type { ProofVerification } from "./sign.js";
+import type { Check, Mandate, Proof, RevocationSnapshot, Scope, TrustRoot } from "./types.js";
 
 export interface ChainContext {
   trustRoots: TrustRoot[];
@@ -29,6 +30,30 @@ function fail(id: string, title: string, detail: string, expected?: string, obse
 
 export function findTrustRoot(trustRoots: TrustRoot[], keyId: string): TrustRoot | undefined {
   return trustRoots.find((root) => root.keyId === keyId);
+}
+
+export function keyLifecycleFault(root: TrustRoot, signedAt: string): string | undefined {
+  const signed = new Date(signedAt).getTime();
+  if (!Number.isFinite(signed)) {
+    return `the proof from ${root.keyId} carries a creation time that cannot be read as a date`;
+  }
+  if (root.signingFrom && signed < new Date(root.signingFrom).getTime()) {
+    return `${root.keyId} was published but not yet in use when this was signed; it became a signing key at ${root.signingFrom}`;
+  }
+  if (root.signingUntil && signed > new Date(root.signingUntil).getTime()) {
+    return `${root.keyId} had already been retired when this was signed; it stopped being a signing key at ${root.signingUntil}`;
+  }
+  return undefined;
+}
+
+export async function verifyAgainstTrustRoot(
+  document: unknown,
+  proof: Proof,
+  root: TrustRoot,
+): Promise<ProofVerification> {
+  const fault = keyLifecycleFault(root, proof.created);
+  if (fault) return { valid: false, reason: fault };
+  return verifyDetached(document, proof, root.publicKeyJwk);
 }
 
 export async function validateChain(chain: Mandate[], context: ChainContext): Promise<ChainReport> {
@@ -142,7 +167,7 @@ export async function validateChain(chain: Mandate[], context: ChainContext): Pr
       );
       continue;
     }
-    const outcome = await verifyDetached(unsignedPartOf(mandate), mandate.proof, trustRoot.publicKeyJwk);
+    const outcome = await verifyAgainstTrustRoot(unsignedPartOf(mandate), mandate.proof, trustRoot);
     if (!outcome.valid) {
       signaturesSound = false;
       checks.push(

@@ -1,9 +1,8 @@
 import { canonicalJson, digestOf, withoutProof } from "./canonical.js";
-import { findTrustRoot } from "./chain.js";
+import { findTrustRoot, verifyAgainstTrustRoot } from "./chain.js";
 import { packBodyOf } from "./evidence.js";
 import { assess, chainDigestOf } from "./gate.js";
 import { verifyLedgerSegment } from "./ledger.js";
-import { verifyDetached } from "./sign.js";
 import { VERIFIER_VERSION, evidencePackSchema } from "./types.js";
 import type { Check, EvidencePack, TrustRoot } from "./types.js";
 
@@ -163,7 +162,7 @@ export async function verifyEvidencePack(
       ),
     );
   } else {
-    const outcome = await verifyDetached(body, pack.integrity.proof, packSigner.publicKeyJwk);
+    const outcome = await verifyAgainstTrustRoot(body, pack.integrity.proof, packSigner);
     checks.push(
       outcome.valid
         ? pass(
@@ -281,10 +280,10 @@ export async function verifyEvidencePack(
       ),
     );
   } else {
-    const outcome = await verifyDetached(
+    const outcome = await verifyAgainstTrustRoot(
       withoutProof(pack.decision),
       pack.decision.proof,
-      gateKey.publicKeyJwk,
+      gateKey,
     );
     checks.push(
       outcome.valid
@@ -339,10 +338,10 @@ export async function verifyEvidencePack(
       ),
     );
   } else {
-    const outcome = await verifyDetached(
+    const outcome = await verifyAgainstTrustRoot(
       withoutProof(pack.revocation),
       pack.revocation.proof,
-      revocationSigner.publicKeyJwk,
+      revocationSigner,
     );
     checks.push(
       outcome.valid

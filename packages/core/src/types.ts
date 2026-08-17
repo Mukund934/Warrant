@@ -168,6 +168,10 @@ export const trustRootSchema = z.object({
     x: z.string().min(1),
     y: z.string().min(1),
   }),
+  status: z.enum(["next", "active", "retired"]).optional(),
+  signingFrom: isoDateTime.optional(),
+  signingUntil: isoDateTime.optional(),
+  acceptUntil: isoDateTime.optional(),
 });
 
 export const revocationSnapshotSchema = z.object({

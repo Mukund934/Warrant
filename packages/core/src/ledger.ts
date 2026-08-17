@@ -1,5 +1,5 @@
 import { digestOf } from "./canonical.js";
-import { findTrustRoot } from "./chain.js";
+import { findTrustRoot, verifyAgainstTrustRoot } from "./chain.js";
 import { signDetached, verifyDetached } from "./sign.js";
 import type { SignerIdentity } from "./sign.js";
 import { WarrantError } from "./types.js";
@@ -155,7 +155,7 @@ export async function verifyLedgerSegment(
     });
   } else {
     const { proof, ...unsigned } = head;
-    const outcome = await verifyDetached(unsigned, proof, trustRoot.publicKeyJwk);
+    const outcome = await verifyAgainstTrustRoot(unsigned, proof, trustRoot);
     checks.push(
       outcome.valid
         ? {

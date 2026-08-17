@@ -8,6 +8,10 @@ export async function GET() {
       kid: root.keyId,
       use: "sig",
       alg: "ES256",
+      ...(root.status ? { warrant_status: root.status } : {}),
+      ...(root.signingFrom ? { warrant_signing_from: root.signingFrom } : {}),
+      ...(root.signingUntil ? { warrant_signing_until: root.signingUntil } : {}),
+      ...(root.acceptUntil ? { warrant_accept_until: root.acceptUntil } : {}),
     })),
   };
 

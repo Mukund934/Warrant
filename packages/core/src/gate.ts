@@ -1,6 +1,6 @@
 import { verifyActionRequest } from "./action.js";
 import { digestOf } from "./canonical.js";
-import { findTrustRoot, validateChain } from "./chain.js";
+import { findTrustRoot, keyLifecycleFault, validateChain } from "./chain.js";
 import { mandateDigest } from "./mandate.js";
 import { formatMoney, isScopeEmpty, permitsCounterparty, describeCounterparties } from "./scope.js";
 import { signDetached } from "./sign.js";
@@ -111,7 +111,10 @@ export async function assess(
       ),
     );
   } else {
-    const outcome = await verifyActionRequest(request, requestKey.publicKeyJwk);
+    const lifecycle = keyLifecycleFault(requestKey, request.proof.created);
+    const outcome = lifecycle
+      ? { valid: false, reason: lifecycle }
+      : await verifyActionRequest(request, requestKey.publicKeyJwk);
     checks.push(
       outcome.valid
         ? pass(
