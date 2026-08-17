@@ -49,6 +49,14 @@ function fail(id: string, title: string, detail: string, expected?: string, obse
   return check;
 }
 
+function describeSeconds(seconds: number): string {
+  const whole = Math.round(Math.abs(seconds));
+  if (whole < 60) return `${whole}s`;
+  if (whole < 3600) return `${Math.round(whole / 60)}m`;
+  if (whole < 86_400) return `${Math.round(whole / 3600)}h`;
+  return `${Math.round(whole / 86_400)}d`;
+}
+
 export async function assess(
   request: ActionRequest,
   chain: Mandate[],
@@ -285,6 +293,63 @@ export async function assess(
           `${formatMoney({ currency: perPeriod.amount.currency, minor: projected })} of ${formatMoney(
             perPeriod.amount,
           )} across ${perPeriod.days} days`,
+        ),
+      );
+    }
+  }
+
+  const freshness = context.inputs.freshness;
+  const FRESHNESS_TITLE = "The request was presented soon after it was signed";
+  if (!freshness) {
+    checks.push({
+      id: "request.freshness",
+      title: FRESHNESS_TITLE,
+      status: "skip",
+      detail: "this decision recorded no acceptance window, so the age of the request was not enforced",
+    });
+  } else {
+    const window = `at most ${describeSeconds(freshness.maxAgeSeconds)} old, allowing ${describeSeconds(
+      freshness.clockSkewSeconds,
+    )} of clock skew`;
+    const ageSeconds =
+      (new Date(context.inputs.evaluatedAt).getTime() - new Date(request.requestedAt).getTime()) / 1000;
+
+    if (!Number.isFinite(ageSeconds)) {
+      checks.push(
+        fail(
+          "request.freshness",
+          FRESHNESS_TITLE,
+          "a timestamp on this request or decision cannot be read as a date, so its age cannot be established",
+          window,
+          `requested ${request.requestedAt}, evaluated ${context.inputs.evaluatedAt}`,
+        ),
+      );
+    } else if (ageSeconds > freshness.maxAgeSeconds + freshness.clockSkewSeconds) {
+      checks.push(
+        fail(
+          "request.freshness",
+          FRESHNESS_TITLE,
+          "this request was signed too long before it was presented; a validly signed request is not indefinitely spendable",
+          window,
+          `signed ${describeSeconds(ageSeconds)} before it was evaluated`,
+        ),
+      );
+    } else if (ageSeconds < -freshness.clockSkewSeconds) {
+      checks.push(
+        fail(
+          "request.freshness",
+          FRESHNESS_TITLE,
+          "this request is dated after the moment it was evaluated, by more than the tolerated clock skew",
+          window,
+          `signed ${describeSeconds(ageSeconds)} after it was evaluated`,
+        ),
+      );
+    } else {
+      checks.push(
+        pass(
+          "request.freshness",
+          FRESHNESS_TITLE,
+          `signed ${describeSeconds(ageSeconds)} before evaluation, within a window of ${window}`,
         ),
       );
     }

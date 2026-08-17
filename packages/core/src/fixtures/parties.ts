@@ -87,3 +87,4 @@ export const TIMELINE = {
 
 export const ESCALATION_THRESHOLD = inr(450_000);
 export const PRIOR_PERIOD_SPEND = inr(630_000);
+export const REQUEST_FRESHNESS = { maxAgeSeconds: 300, clockSkewSeconds: 30 };

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { assess } from "../src/index.js";
+import type { EvaluationInputs } from "../src/index.js";
 import { demoScenarios, trustRoots } from "../src/fixtures/scenarios.js";
 
 const scenarios = await demoScenarios();
@@ -82,6 +83,94 @@ describe("replay protection", () => {
     });
     expect(assessment.verdict).toBe("ALLOW");
     expect(assessment.checks.find((check) => check.id === "replay.freshness")?.status).toBe("skip");
+  });
+});
+
+describe("request freshness", () => {
+  const allowed = scenarios.find((scenario) => scenario.id === "authorised-payment")!;
+  const signedAt = allowed.request.requestedAt;
+
+  function shift(seconds: number): string {
+    return new Date(new Date(signedAt).getTime() + seconds * 1000)
+      .toISOString()
+      .replace(/\.\d+Z$/, "Z");
+  }
+
+  async function freshnessAt(evaluatedAt: string, inputs: Partial<EvaluationInputs> = {}) {
+    const assessment = await assess(allowed.request, allowed.chain, {
+      trustRoots,
+      revocation: allowed.revocation,
+      inputs: { ...allowed.decision.inputs, evaluatedAt, ...inputs },
+    });
+    return {
+      verdict: assessment.verdict,
+      check: assessment.checks.find((check) => check.id === "request.freshness")!,
+    };
+  }
+
+  it("carries the acceptance window in the signed decision inputs", () => {
+    expect(allowed.decision.inputs.freshness).toEqual({ maxAgeSeconds: 300, clockSkewSeconds: 30 });
+  });
+
+  it("accepts a request presented inside the acceptance window", async () => {
+    const { verdict, check } = await freshnessAt(shift(60));
+    expect(check.status).toBe("pass");
+    expect(verdict).toBe("ALLOW");
+  });
+
+  it("blocks a request presented long after it was signed", async () => {
+    const { verdict, check } = await freshnessAt(shift(60 * 60 * 24 * 30));
+    expect(check.status).toBe("fail");
+    expect(verdict).toBe("BLOCK");
+  });
+
+  it("accepts a request at the exact clock-skew boundary", async () => {
+    const { check } = await freshnessAt(shift(330));
+    expect(check.status).toBe("pass");
+  });
+
+  it("blocks a request one second past the clock-skew boundary", async () => {
+    const { check } = await freshnessAt(shift(331));
+    expect(check.status).toBe("fail");
+  });
+
+  it("tolerates a future-dated request inside the skew allowance", async () => {
+    const { verdict, check } = await freshnessAt(shift(-30));
+    expect(check.status).toBe("pass");
+    expect(verdict).toBe("ALLOW");
+  });
+
+  it("blocks a request dated further into the future than the skew allowance", async () => {
+    const { verdict, check } = await freshnessAt(shift(-31));
+    expect(check.status).toBe("fail");
+    expect(verdict).toBe("BLOCK");
+  });
+
+  it("blocks rather than passes when a timestamp cannot be read as a date", async () => {
+    const { verdict, check } = await freshnessAt("the twentieth of August");
+    expect(check.status).toBe("fail");
+    expect(verdict).toBe("BLOCK");
+  });
+
+  it("records that freshness was not enforced when no window was supplied", async () => {
+    const inputs: EvaluationInputs = { ...allowed.decision.inputs };
+    delete inputs.freshness;
+    const assessment = await assess(allowed.request, allowed.chain, {
+      trustRoots,
+      revocation: allowed.revocation,
+      inputs,
+    });
+    const check = assessment.checks.find((entry) => entry.id === "request.freshness")!;
+    expect(check.status).toBe("skip");
+    expect(assessment.verdict).toBe("ALLOW");
+  });
+
+  it("reproduces the same freshness verdict from the decision's own recorded inputs", async () => {
+    const stale = shift(60 * 60 * 24 * 30);
+    const first = await freshnessAt(stale);
+    const second = await freshnessAt(stale);
+    expect(second.check).toEqual(first.check);
+    expect(second.verdict).toBe(first.verdict);
   });
 });
 

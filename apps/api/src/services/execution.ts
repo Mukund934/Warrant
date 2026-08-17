@@ -20,6 +20,7 @@ import {
   ESCALATION_THRESHOLD,
   gate,
   identifier,
+  REQUEST_FRESHNESS,
   nowIso,
   recorder,
   signerForKeyId,
@@ -141,6 +142,7 @@ export async function submitAction(
       inputs: {
         evaluatedAt,
         replayStatus: fresh ? "fresh" : "replayed",
+        freshness: REQUEST_FRESHNESS,
         escalationThreshold: ESCALATION_THRESHOLD,
         ...(priorSpend ? { priorSpend } : {}),
       },

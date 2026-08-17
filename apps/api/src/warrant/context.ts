@@ -33,6 +33,7 @@ export const gate: GateIdentity = { id: "gate:meridian-sandbox", signer: signerO
 export { apAgent, organisation, paymentAgent, priyaSharma, trustRoots };
 
 export const ESCALATION_THRESHOLD = { currency: "INR" as const, minor: 45_000_000 };
+export const REQUEST_FRESHNESS = { maxAgeSeconds: 300, clockSkewSeconds: 30 };
 
 export function nowIso(): string {
   return new Date().toISOString().replace(/\.\d+Z$/, "Z");

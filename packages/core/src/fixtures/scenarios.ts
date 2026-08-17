@@ -35,6 +35,7 @@ import {
   KALYANI,
   NAGPUR,
   PRIOR_PERIOD_SPEND,
+  REQUEST_FRESHNESS,
   SUNDARAM,
   TIMELINE,
   UNLISTED,
@@ -265,6 +266,7 @@ async function build(): Promise<ScenarioRun[]> {
   const standardInputs: EvaluationInputs = {
     evaluatedAt: TIMELINE.evaluatedAt,
     replayStatus: "fresh",
+    freshness: REQUEST_FRESHNESS,
     priorSpend: PRIOR_PERIOD_SPEND,
     escalationThreshold: ESCALATION_THRESHOLD,
   };

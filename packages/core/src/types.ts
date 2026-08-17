@@ -110,9 +110,15 @@ export const checkSchema = z.object({
   observed: z.string().optional(),
 });
 
+export const freshnessPolicySchema = z.object({
+  maxAgeSeconds: z.number().int().positive(),
+  clockSkewSeconds: z.number().int().nonnegative(),
+});
+
 export const evaluationInputsSchema = z.object({
   evaluatedAt: isoDateTime,
   replayStatus: z.enum(["fresh", "replayed", "unchecked"]),
+  freshness: freshnessPolicySchema.optional(),
   priorSpend: moneySchema.optional(),
   escalationThreshold: moneySchema.optional(),
 });
@@ -220,6 +226,7 @@ export type ActionRequest = z.infer<typeof actionRequestSchema>;
 export type UnsignedActionRequest = Omit<ActionRequest, "proof">;
 export type Check = z.infer<typeof checkSchema>;
 export type CheckStatus = Check["status"];
+export type FreshnessPolicy = z.infer<typeof freshnessPolicySchema>;
 export type EvaluationInputs = z.infer<typeof evaluationInputsSchema>;
 export type Decision = z.infer<typeof decisionSchema>;
 export type Verdict = Decision["verdict"];
