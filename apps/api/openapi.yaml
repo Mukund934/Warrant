@@ -1,0 +1,157 @@
+openapi: 3.1.0
+info:
+  title: Warrant control plane
+  version: 0.1.0
+  summary: Issue scope-bound mandates, decide actions against them, and produce evidence anyone can verify offline.
+  description: >
+    Every response body that carries a signature is a Warrant format with its own version string,
+    independent of this API's version. `/v1` may change while `warrant/evidence-pack/v0.1` does not,
+    and the reverse is also true. A relying party should pin the format, not the endpoint.
+
+    This deployment has no authentication. Anyone can issue mandates under the published
+    demonstration keys, which exist so that a reader can reproduce and forge packs for themselves.
+servers:
+  - url: /v1
+
+tags:
+  - name: mandates
+    description: Issuance, delegation and revocation of authority.
+  - name: actions
+    description: Deciding an action against the authority presented with it.
+  - name: verification
+    description: Relying-party operations. Nothing here requires trusting this service.
+
+paths:
+  /mandates:
+    post:
+      tags: [mandates]
+      summary: Issue a root mandate
+      description: The issuer must be a principal key. Authority granted here is the ceiling for every hop below it.
+      responses:
+        "201": { description: The signed mandate, at depth 0. }
+        "400": { $ref: "#/components/responses/InvalidRequest" }
+        "422": { description: The requested scope is not one this issuer may grant. }
+
+  /mandates/{id}:
+    get:
+      tags: [mandates]
+      summary: Read a mandate and the chain above it
+      parameters: [{ $ref: "#/components/parameters/MandateId" }]
+      responses:
+        "200": { description: The mandate and its ancestors, root first. }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /mandates/{id}/delegations:
+    post:
+      tags: [mandates]
+      summary: Delegate a narrower mandate
+      description: >
+        Refused if the delegation would widen any dimension of scope, exceed the parent's validity
+        window, or pass the maximum delegation depth. Absent fields inherit from the parent; they
+        never widen.
+      parameters: [{ $ref: "#/components/parameters/MandateId" }]
+      responses:
+        "201": { description: The signed child mandate. }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422":
+          description: >
+            `delegation_would_widen`, naming the dimension that failed, for example
+            `scope/per_action_limit_exceeded`.
+
+  /mandates/{id}/revocation:
+    post:
+      tags: [mandates]
+      summary: Revoke a mandate
+      description: Revocation is published as a signed snapshot carrying the moment it was taken.
+      parameters: [{ $ref: "#/components/parameters/MandateId" }]
+      responses:
+        "201": { description: The updated signed revocation snapshot. }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /actions:
+    post:
+      tags: [actions]
+      summary: Present an action for decision
+      description: >
+        Runs the full check pipeline and returns a signed decision plus an evidence pack. **A refused
+        action is a 201, not an error** — a BLOCK is a successful decision and valid evidence. Only a
+        malformed request is a 4xx.
+      responses:
+        "201":
+          description: The signed decision and its evidence pack. Verdict is ALLOW, BLOCK or ESCALATE.
+        "400": { $ref: "#/components/responses/InvalidRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /trust-roots:
+    get:
+      tags: [verification]
+      summary: The public keys this deployment signs with
+      description: >
+        Public halves only. Keys carry an optional signing lifecycle; a key outside its signing
+        window cannot sign new artifacts but everything it already signed stays verifiable.
+      responses:
+        "200": { description: An array of trust roots. Never contains private key material. }
+
+  /verify:
+    post:
+      tags: [verification]
+      summary: Verify an evidence pack
+      description: >
+        Offered as a convenience. It is not the trustworthy way to verify — a relying party should
+        run the standalone verifier against keys it obtained itself, because asking the issuer whether
+        its own evidence is good proves nothing.
+      responses:
+        "200":
+          description: >
+            A verification report. `result` is VERIFIED or INVALID and answers whether the evidence
+            is genuine; `authority` explains the verdict and is a finding, not a fault.
+        "400": { $ref: "#/components/responses/InvalidRequest" }
+
+  /evidence/{id}:
+    get:
+      tags: [verification]
+      summary: Fetch a stored evidence pack
+      parameters: [{ $ref: "#/components/parameters/PackId" }]
+      responses:
+        "200": { description: The evidence pack. }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /scenarios:
+    get:
+      tags: [verification]
+      summary: List the deterministic demonstration scenarios
+      responses:
+        "200": { description: Scenario identifiers, questions and expected verdicts. }
+
+  /scenarios/{id}:
+    get:
+      tags: [verification]
+      summary: Read one demonstration scenario
+      parameters: [{ $ref: "#/components/parameters/ScenarioId" }]
+      responses:
+        "200": { description: The scenario with its chain, request, decision and pack. }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+components:
+  parameters:
+    MandateId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string }
+    PackId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string }
+    ScenarioId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string }
+
+  responses:
+    InvalidRequest:
+      description: "`invalid_request`, with a per-field list of what failed."
+    NotFound:
+      description: "`not_found`."
