@@ -20,7 +20,7 @@
     "start:api": "npm run start -w @warrant/api",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --build --force",
+    "typecheck": "tsc --build && tsc -p tsconfig.test.json",
     "export:packs": "npm run build:core --silent && node scripts/export-packs.mjs",
     "verify": "node packages/verifier/dist/cli.js"
   },

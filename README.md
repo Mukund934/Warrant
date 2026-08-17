@@ -1,5 +1,7 @@
 # Warrant
 
+[![ci](https://github.com/Mukund934/Warrant/actions/workflows/ci.yml/badge.svg)](https://github.com/Mukund934/Warrant/actions/workflows/ci.yml)
+
 **Proof of who authorised an AI action, under what limits, and who is accountable.**
 
 AI agents have started to take consequential actions — paying invoices, calling banking APIs, moving
