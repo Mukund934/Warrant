@@ -39,3 +39,6 @@ jobs:
 
       - name: run the published conformance suite
         run: npm run conformance
+
+      - name: refuse to publish private key material
+        run: node packages/verifier/dist/cli.js inspect-key conformance/trust-roots.json

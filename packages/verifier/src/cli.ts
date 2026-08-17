@@ -1,12 +1,21 @@
 #!/usr/bin/env node
 import { readFile } from "node:fs/promises";
-import { runVector, verifyEvidencePack } from "@warrant/core";
-import type { Check, ConformanceManifest, TrustRoot, VerificationReport } from "@warrant/core";
+import { assess, describeCounterparties, runVector, thumbprintOf, verifyEvidencePack } from "@warrant/core";
+import type {
+  Check,
+  ConformanceManifest,
+  EvidencePack,
+  TrustRoot,
+  VerificationReport,
+} from "@warrant/core";
 
 const USAGE = `warrant-verify - check a Warrant evidence pack without contacting anyone
 
-  warrant-verify <pack.json> [options]
-  warrant-verify conformance <directory>
+  warrant-verify <pack.json> [options]      check a pack and reproduce its verdict
+  warrant-verify inspect <pack.json>        read a pack without verifying it
+  warrant-verify replay <pack.json>         re-run the authority decision, check by check
+  warrant-verify inspect-key <keys.json>    read a key set: thumbprints and lifecycle
+  warrant-verify conformance <directory>    run a published conformance suite
 
   --trust-roots <file>   verify against keys you obtained yourself, rather than
                          the keys carried inside the pack
@@ -227,9 +236,189 @@ async function conformance(directory: string): Promise<number> {
   return failed === 0 ? 0 : 1;
 }
 
+async function loadPack(path: string): Promise<EvidencePack | number> {
+  try {
+    return JSON.parse(await readFile(path, "utf8")) as EvidencePack;
+  } catch (error) {
+    console.error(`warrant-verify: cannot read ${path}: ${(error as Error).message}`);
+    return 2;
+  }
+}
+
+async function loadKeys(path: string): Promise<TrustRoot[] | number> {
+  try {
+    const loaded: unknown = JSON.parse(await readFile(path, "utf8"));
+    const keys = Array.isArray(loaded)
+      ? (loaded as TrustRoot[])
+      : ((loaded as { trustRoots?: TrustRoot[]; keys?: TrustRoot[] }).trustRoots ??
+        (loaded as { keys?: TrustRoot[] }).keys);
+    if (!Array.isArray(keys)) throw new Error("expected an array of keys");
+    return keys;
+  } catch (error) {
+    console.error(`warrant-verify: cannot read ${path}: ${(error as Error).message}`);
+    return 2;
+  }
+}
+
+async function inspect(path: string): Promise<number> {
+  const pack = await loadPack(path);
+  if (typeof pack === "number") return pack;
+
+  console.log("");
+  console.log(bold("  Warrant evidence pack"));
+  console.log(`  ${dim(`${pack.version} · ${path}`)}`);
+  console.log(`  ${dim("this is a reader, not a check — nothing below has been verified")}`);
+  console.log("");
+  console.log(`  ${pack.summary.headline}`);
+  console.log(`  ${dim(`organisation   ${pack.organisation.name}`)}`);
+  console.log(
+    `  ${dim(`accountable    ${pack.authority.liablePrincipal.name}, ${pack.authority.liablePrincipal.role}`)}`,
+  );
+  console.log(`  ${dim(`generated      ${pack.generatedAt}`)}`);
+  console.log("");
+
+  const hops = pack.authority.chain.length;
+  console.log(bold(`  Authority chain — ${hops} hop${hops === 1 ? "" : "s"}`));
+  for (const mandate of pack.authority.chain) {
+    console.log(`  ${dim(`depth ${mandate.depth}`)}  ${mandate.issuer.name} → ${mandate.subject.name}`);
+    console.log(`         ${dim(`${mandate.id} · valid ${mandate.notBefore} to ${mandate.expiresAt}`)}`);
+    console.log(`         ${dim(`signed by ${mandate.proof.verificationMethod}`)}`);
+  }
+  console.log("");
+
+  const scope = pack.authority.effectiveScope;
+  console.log(bold("  Effective scope, once every hop is intersected"));
+  console.log(`  ${dim(`actions        ${scope.actions.join(", ") || "none"}`)}`);
+  console.log(`  ${dim(`audience       ${scope.audience.join(", ") || "none"}`)}`);
+  console.log(`  ${dim(`counterparties ${describeCounterparties(scope) || "none"}`)}`);
+  if (scope.limits.perAction) {
+    console.log(
+      `  ${dim(`per action     ${scope.limits.perAction.currency} ${scope.limits.perAction.minor}`)}`,
+    );
+  }
+  console.log("");
+
+  console.log(bold("  Decision"));
+  console.log(`  ${dim(`verdict        ${pack.decision.verdict}`)}`);
+  console.log(`  ${dim(`evaluated      ${pack.decision.evaluatedAt} by ${pack.decision.gate.id}`)}`);
+  console.log(`  ${dim(`checks         ${pack.decision.checks.length} recorded`)}`);
+  console.log(
+    `  ${dim(`ledger         ${pack.ledger.entries.length} entries, head at sequence ${pack.ledger.head.seq}`)}`,
+  );
+  console.log("");
+  console.log(`  ${dim("run without a subcommand to verify this pack rather than read it")}`);
+  console.log("");
+  return 0;
+}
+
+async function replay(path: string, trustRootsPath?: string): Promise<number> {
+  const pack = await loadPack(path);
+  if (typeof pack === "number") return pack;
+
+  let trustRoots: TrustRoot[] = pack.trustRoots;
+  if (trustRootsPath) {
+    const loaded = await loadKeys(trustRootsPath);
+    if (typeof loaded === "number") return loaded;
+    trustRoots = loaded;
+  }
+
+  const assessment = await assess(pack.request, pack.authority.chain, {
+    trustRoots,
+    revocation: pack.revocation,
+    inputs: pack.decision.inputs,
+  });
+
+  const inputs = pack.decision.inputs;
+  console.log("");
+  console.log(bold("  Replaying the authority decision"));
+  console.log(`  ${dim(`${path} · using the inputs recorded inside the signed decision`)}`);
+  console.log("");
+  console.log(bold("  What the gate decided on"));
+  console.log(`  ${dim(`evaluated at   ${inputs.evaluatedAt}`)}`);
+  console.log(`  ${dim(`replay status  ${inputs.replayStatus}`)}`);
+  if (inputs.freshness) {
+    console.log(
+      `  ${dim(`freshness      max age ${inputs.freshness.maxAgeSeconds}s, skew ${inputs.freshness.clockSkewSeconds}s`)}`,
+    );
+  }
+  if (inputs.priorSpend) {
+    console.log(`  ${dim(`prior spend    ${inputs.priorSpend.currency} ${inputs.priorSpend.minor}`)}`);
+  }
+  console.log("");
+  printChecks(assessment.checks);
+  console.log("");
+
+  const matches = assessment.verdict === pack.decision.verdict;
+  if (matches) {
+    console.log(`  ${green(assessment.verdict)}  ${dim("same verdict as the signed decision")}`);
+    console.log(`  ${dim(assessment.reason)}`);
+  } else {
+    console.log(
+      `  ${red(assessment.verdict)}  ${dim(`the pack records ${pack.decision.verdict}, replaying gives ${assessment.verdict}`)}`,
+    );
+  }
+  console.log("");
+  return matches ? 0 : 1;
+}
+
+async function inspectKey(path: string): Promise<number> {
+  const keys = await loadKeys(path);
+  if (typeof keys === "number") return keys;
+
+  let leaked = false;
+  console.log("");
+  console.log(bold(`  ${keys.length} key${keys.length === 1 ? "" : "s"}`));
+  console.log(`  ${dim(path)}`);
+  console.log("");
+
+  for (const root of keys) {
+    const jwk = (root.publicKeyJwk ?? (root as unknown)) as { x?: string; y?: string; d?: string };
+    let thumbprint: string;
+    try {
+      thumbprint = await thumbprintOf(jwk as never);
+    } catch {
+      thumbprint = "not a P-256 public key";
+    }
+
+    console.log(`  ${bold(root.keyId ?? "unnamed key")}`);
+    console.log(`    ${dim(`subject      ${root.subject ?? "not stated"}`)}`);
+    console.log(`    ${dim(`role         ${root.role ?? "not stated"}`)}`);
+    console.log(`    ${dim(`thumbprint   ${thumbprint}`)}`);
+    console.log(`    ${dim(`status       ${root.status ?? "no lifecycle declared"}`)}`);
+    if (root.signingFrom) console.log(`    ${dim(`signs from   ${root.signingFrom}`)}`);
+    if (root.signingUntil) console.log(`    ${dim(`signs until  ${root.signingUntil}`)}`);
+    if (root.acceptUntil) console.log(`    ${dim(`accept until ${root.acceptUntil}`)}`);
+    if (jwk.d) {
+      leaked = true;
+      console.log(`    ${red("PRIVATE KEY MATERIAL — this file must never be published")}`);
+    }
+    console.log("");
+  }
+
+  if (leaked) {
+    console.log(`  ${red("this key set contains private key material")}`);
+    console.log("");
+  }
+  return leaked ? 1 : 0;
+}
+
 const argv = process.argv.slice(2);
-process.exitCode = argv[0] === "conformance"
-  ? argv[1]
-    ? await conformance(argv[1])
-    : (console.error("warrant-verify: conformance needs a directory"), 2)
-  : await main();
+const COMMANDS: Record<string, (target: string, rootsPath?: string) => Promise<number>> = {
+  conformance: (target) => conformance(target),
+  inspect: (target) => inspect(target),
+  "inspect-key": (target) => inspectKey(target),
+  replay: (target, rootsPath) => replay(target, rootsPath),
+};
+
+const [command, target] = argv;
+const handler = command ? COMMANDS[command] : undefined;
+
+if (!handler) {
+  process.exitCode = await main();
+} else if (!target || target.startsWith("-")) {
+  console.error(`warrant-verify: ${command} needs a file path`);
+  process.exitCode = 2;
+} else {
+  const flag = argv.indexOf("--trust-roots");
+  process.exitCode = await handler(target, flag === -1 ? undefined : argv[flag + 1]);
+}
