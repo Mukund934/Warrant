@@ -60,8 +60,41 @@ describe("service surface", () => {
       status: "ok",
       persistence: "in-memory",
       database: false,
+      databaseReachable: false,
       replayScope: "process",
     });
+  });
+
+  it("distinguishes a configured database from a reachable one", async () => {
+    const unreachable = createApp({ database: { probe: async () => false } });
+    const response = await request(unreachable).get("/health").expect(503);
+
+    expect(response.body).toEqual({
+      status: "degraded",
+      persistence: "postgres",
+      database: true,
+      databaseReachable: false,
+      replayScope: "process",
+    });
+  });
+
+  it("reports healthy once the database answers", async () => {
+    const reachable = createApp({ database: { probe: async () => true } });
+    const response = await request(reachable).get("/health").expect(200);
+
+    expect(response.body).toMatchObject({
+      status: "ok",
+      persistence: "postgres",
+      database: true,
+      databaseReachable: true,
+    });
+  });
+
+  it("never puts the connection string in the health response", async () => {
+    const configured = createApp({ database: { probe: async () => true } });
+    const response = await request(configured).get("/health").expect(200);
+
+    expect(JSON.stringify(response.body)).not.toMatch(/postgres(ql)?:\/\/|password|@/i);
   });
 
   it("publishes the trust roots", async () => {

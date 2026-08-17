@@ -10,6 +10,7 @@ export class TestSchema {
   readonly name = `warrant_test_${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
   private readonly pools: Pool[] = [];
   private administrator: Pool | undefined;
+  private companion: Pool | undefined;
 
   private open(schema: string | undefined, max: number): Pool {
     const pool = createPool({
@@ -26,8 +27,13 @@ export class TestSchema {
     return this.administrator;
   }
 
-  instance(max = 2): Pool {
-    return this.open(this.name, max);
+  get second(): Pool {
+    this.companion ??= this.open(this.name, 2);
+    return this.companion;
+  }
+
+  async warm(): Promise<void> {
+    await Promise.all([this.admin.query("select 1"), this.second.query("select 1")]);
   }
 
   async create(): Promise<void> {
@@ -57,6 +63,7 @@ export class TestSchema {
       await Promise.all(this.pools.map((pool) => pool.end()));
       this.pools.length = 0;
       this.administrator = undefined;
+      this.companion = undefined;
     }
   }
 }

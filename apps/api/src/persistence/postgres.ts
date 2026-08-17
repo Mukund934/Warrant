@@ -1,8 +1,16 @@
 import pg from "pg";
 import type { Pool } from "pg";
 import { GENESIS_DIGEST, WarrantError, ledgerEntryDigest } from "@warrant/core";
-import type { LedgerEntry } from "@warrant/core";
-import type { LedgerRepository, NonceStore, ReplayScope } from "./types.js";
+import type { EvidencePack, LedgerEntry, Mandate } from "@warrant/core";
+import type {
+  EvidenceRepository,
+  LedgerRepository,
+  MandateRepository,
+  NonceStore,
+  ReplayScope,
+  Repositories,
+  RevocationRecord,
+} from "./types.js";
 
 export interface PostgresOptions {
   connectionString: string;
@@ -177,4 +185,152 @@ export class PostgresLedgerRepository implements LedgerRepository {
     );
     return Number(rows.rows[0]?.total ?? 0);
   }
+}
+
+const MAX_CHAIN_DEPTH = 16;
+
+export class PostgresMandateRepository implements MandateRepository {
+  constructor(private readonly pool: Pool) {}
+
+  async save(mandate: Mandate): Promise<void> {
+    await this.pool.query(
+      `insert into mandates (
+         id, parent_id, depth, organisation_id, liable_principal_id, subject_id,
+         issuer_key_id, not_before, expires_at, issued_at, document
+       )
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+       on conflict (id) do nothing`,
+      [
+        mandate.id,
+        mandate.parent?.id ?? null,
+        mandate.depth,
+        mandate.organisation.id,
+        mandate.liablePrincipal.id,
+        mandate.subject.id,
+        mandate.issuer.keyId,
+        mandate.notBefore,
+        mandate.expiresAt,
+        mandate.issuedAt,
+        mandate,
+      ],
+    );
+  }
+
+  async findById(id: string): Promise<Mandate | undefined> {
+    const rows = await this.pool.query<{ document: Mandate }>(
+      "select document from mandates where id = $1",
+      [id],
+    );
+    return rows.rows[0]?.document;
+  }
+
+  async findChain(leafId: string): Promise<Mandate[] | undefined> {
+    const rows = await this.pool.query<{ document: Mandate; parent_id: string | null }>(
+      `with recursive lineage as (
+         select id, parent_id, document, 1 as hops from mandates where id = $1
+         union all
+         select above.id, above.parent_id, above.document, lineage.hops + 1
+         from mandates above
+         join lineage on above.id = lineage.parent_id
+         where lineage.hops <= $2
+       )
+       select document, parent_id from lineage order by hops desc`,
+      [leafId, MAX_CHAIN_DEPTH],
+    );
+
+    const chain = rows.rows;
+    if (chain.length === 0 || chain.length > MAX_CHAIN_DEPTH) return undefined;
+    if (chain[0]!.parent_id !== null) return undefined;
+
+    return chain.map((row) => row.document);
+  }
+
+  async revoke(record: RevocationRecord): Promise<boolean> {
+    const withdrawn = await this.pool.query(
+      `update mandates set revoked_at = $2, revocation_reason = $3
+       where id = $1 and revoked_at is null`,
+      [record.mandateId, record.revokedAt, record.reason],
+    );
+    return withdrawn.rowCount === 1;
+  }
+
+  async revocations(): Promise<RevocationRecord[]> {
+    const rows = await this.pool.query<{
+      id: string;
+      revoked_at: Date;
+      revocation_reason: string;
+    }>(
+      `select id, revoked_at, revocation_reason from mandates
+       where revoked_at is not null
+       order by revoked_at, id`,
+    );
+
+    return rows.rows.map((row) => ({
+      mandateId: row.id,
+      revokedAt: isoFromDatabase(row.revoked_at),
+      reason: row.revocation_reason,
+    }));
+  }
+}
+
+export class PostgresEvidenceRepository implements EvidenceRepository {
+  constructor(private readonly pool: Pool) {}
+
+  async save(pack: EvidencePack): Promise<void> {
+    const amount = pack.request.amount;
+    await this.pool.query(
+      `insert into evidence_packs (
+         pack_id, root_mandate_id, verdict, evaluated_at, generated_at,
+         amount_currency, amount_minor, document
+       )
+       values ($1, $2, $3, $4, $5, $6, $7, $8)
+       on conflict (pack_id) do nothing`,
+      [
+        pack.packId,
+        pack.authority.chain[0]!.id,
+        pack.decision.verdict,
+        pack.decision.evaluatedAt,
+        pack.generatedAt,
+        amount?.currency ?? null,
+        amount?.minor ?? null,
+        pack,
+      ],
+    );
+  }
+
+  async findById(packId: string): Promise<EvidencePack | undefined> {
+    const rows = await this.pool.query<{ document: EvidencePack }>(
+      "select document from evidence_packs where pack_id = $1",
+      [packId],
+    );
+    return rows.rows[0]?.document;
+  }
+
+  async recent(limit: number): Promise<EvidencePack[]> {
+    const rows = await this.pool.query<{ document: EvidencePack }>(
+      `select document from evidence_packs
+       order by evaluated_at desc, created_at desc, pack_id desc
+       limit $1`,
+      [limit],
+    );
+    return rows.rows.map((row) => row.document);
+  }
+}
+
+export async function pingDatabase(pool: Pool): Promise<boolean> {
+  try {
+    await pool.query("select 1");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function createPostgresRepositories(pool: Pool, retentionSeconds: number): Repositories {
+  return {
+    mandates: new PostgresMandateRepository(pool),
+    evidence: new PostgresEvidenceRepository(pool),
+    ledger: new PostgresLedgerRepository(pool),
+    nonces: new PostgresNonceStore(pool, retentionSeconds),
+  };
 }

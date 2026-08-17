@@ -7,14 +7,20 @@ import type { Repositories } from "./persistence/types.js";
 import { authorityRoutes } from "./routes/authority.js";
 import { catalogueRoutes } from "./routes/catalogue.js";
 
+export interface DatabaseProbe {
+  probe(): Promise<boolean>;
+}
+
 export interface AppOptions {
   repositories?: Repositories;
   allowedOrigin?: string;
+  database?: DatabaseProbe;
 }
 
 export function createApp(options: AppOptions = {}): Express {
   const repositories = options.repositories ?? createInMemoryRepositories();
   const allowedOrigin = options.allowedOrigin ?? "*";
+  const database = options.database;
 
   const app = express();
   app.disable("x-powered-by");
@@ -34,11 +40,15 @@ export function createApp(options: AppOptions = {}): Express {
     response.status(204).end();
   });
 
-  app.get("/health", (_request, response) => {
-    response.json({
-      status: "ok",
-      persistence: "in-memory",
-      database: false,
+  app.get("/health", async (_request, response) => {
+    const reachable = database ? await database.probe() : false;
+    const healthy = database ? reachable : true;
+
+    response.status(healthy ? 200 : 503).json({
+      status: healthy ? "ok" : "degraded",
+      persistence: database ? "postgres" : "in-memory",
+      database: Boolean(database),
+      databaseReachable: reachable,
       replayScope: repositories.nonces.scope,
     });
   });
