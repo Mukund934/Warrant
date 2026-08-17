@@ -36,3 +36,6 @@ jobs:
 
       - name: verify every demonstration pack offline
         run: node scripts/tamper-sweep.mjs
+
+      - name: run the published conformance suite
+        run: npm run conformance

@@ -1,0 +1,133 @@
+{
+  "version": "warrant/conformance/v0.1",
+  "generatedAt": "2026-08-17T00:00:00Z",
+  "trustRootsFile": "trust-roots.json",
+  "vectors": [
+    {
+      "name": "valid-authorised-payment",
+      "description": "A genuine pack recording ALLOW. Evidence of a refusal is still valid evidence.",
+      "file": "valid-authorised-payment.json",
+      "result": "VERIFIED",
+      "verdict": "ALLOW"
+    },
+    {
+      "name": "valid-over-limit",
+      "description": "A genuine pack recording BLOCK. Evidence of a refusal is still valid evidence.",
+      "file": "valid-over-limit.json",
+      "result": "VERIFIED",
+      "verdict": "BLOCK",
+      "failingChecks": [
+        "limit.per_action"
+      ]
+    },
+    {
+      "name": "valid-delegation-escalation",
+      "description": "A genuine pack recording BLOCK. Evidence of a refusal is still valid evidence.",
+      "file": "valid-delegation-escalation.json",
+      "result": "VERIFIED",
+      "verdict": "BLOCK",
+      "failingChecks": [
+        "chain.narrowing"
+      ]
+    },
+    {
+      "name": "valid-expired-mandate",
+      "description": "A genuine pack recording BLOCK. Evidence of a refusal is still valid evidence.",
+      "file": "valid-expired-mandate.json",
+      "result": "VERIFIED",
+      "verdict": "BLOCK",
+      "failingChecks": [
+        "temporal.validity"
+      ]
+    },
+    {
+      "name": "valid-wrong-agent",
+      "description": "A genuine pack recording BLOCK. Evidence of a refusal is still valid evidence.",
+      "file": "valid-wrong-agent.json",
+      "result": "VERIFIED",
+      "verdict": "BLOCK",
+      "failingChecks": [
+        "actor.binding"
+      ]
+    },
+    {
+      "name": "valid-revoked-mandate",
+      "description": "A genuine pack recording BLOCK. Evidence of a refusal is still valid evidence.",
+      "file": "valid-revoked-mandate.json",
+      "result": "VERIFIED",
+      "verdict": "BLOCK",
+      "failingChecks": [
+        "revocation.status"
+      ]
+    },
+    {
+      "name": "valid-unlisted-counterparty",
+      "description": "A genuine pack recording BLOCK. Evidence of a refusal is still valid evidence.",
+      "file": "valid-unlisted-counterparty.json",
+      "result": "VERIFIED",
+      "verdict": "BLOCK",
+      "failingChecks": [
+        "counterparty.allowed"
+      ]
+    },
+    {
+      "name": "valid-human-approval",
+      "description": "A genuine pack recording ESCALATE. Evidence of a refusal is still valid evidence.",
+      "file": "valid-human-approval.json",
+      "result": "VERIFIED",
+      "verdict": "ESCALATE"
+    },
+    {
+      "name": "tampered-amount",
+      "description": "The payment amount was edited after signing. Digest, signature and reproduction must all catch it.",
+      "file": "tampered-amount.json",
+      "result": "INVALID",
+      "failingChecks": [
+        "pack.digest",
+        "pack.signature",
+        "request.signature"
+      ]
+    },
+    {
+      "name": "tampered-verdict",
+      "description": "A BLOCK was rewritten to ALLOW. The recorded decision no longer matches its signature.",
+      "file": "tampered-verdict.json",
+      "result": "INVALID",
+      "failingChecks": [
+        "pack.digest",
+        "pack.signature",
+        "decision.signature"
+      ]
+    },
+    {
+      "name": "tampered-principal",
+      "description": "The accountable person named in the summary no longer matches the root mandate.",
+      "file": "tampered-principal.json",
+      "result": "INVALID",
+      "failingChecks": [
+        "pack.digest",
+        "pack.consistency"
+      ]
+    },
+    {
+      "name": "tampered-expiry",
+      "description": "A mandate's expiry was extended to cover an action it did not cover.",
+      "file": "tampered-expiry.json",
+      "result": "INVALID",
+      "failingChecks": [
+        "pack.digest",
+        "chain.signatures"
+      ]
+    },
+    {
+      "name": "tampered-ledger-head",
+      "description": "The ledger head sequence was altered, breaking the hash chain it commits to.",
+      "file": "tampered-ledger-head.json",
+      "result": "INVALID",
+      "failingChecks": [
+        "pack.digest",
+        "ledger.head"
+      ]
+    }
+  ]
+}

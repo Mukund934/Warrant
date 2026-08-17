@@ -1,0 +1,596 @@
+{
+  "version": "warrant/evidence-pack/v0.1",
+  "packId": "pack_over-limit",
+  "generatedAt": "2026-08-20T14:33:00Z",
+  "generatedBy": "Warrant demonstrator, recording service for Meridian Technologies Pvt Ltd",
+  "organisation": {
+    "id": "org:meridian-technologies",
+    "name": "Meridian Technologies Pvt Ltd",
+    "jurisdiction": "IN-MH"
+  },
+  "summary": {
+    "headline": "PAY-Agent-07 requested supplier invoice MTPL/2026/08/4472 of ₹8,00,000.00 and it was blocked.",
+    "authorisedBy": "Priya Sharma, Head of Finance, Meridian Technologies Pvt Ltd",
+    "performedBy": "PAY-Agent-07 (Payment execution agent, MCP runtime)",
+    "action": "supplier invoice MTPL/2026/08/4472",
+    "verdict": "ALLOW",
+    "occurredAt": "2026-08-20T14:32:07Z"
+  },
+  "request": {
+    "actor": "agent:pay-agent-07",
+    "action": "payment.execute",
+    "resource": "bank:hdfc/corporate-api",
+    "counterparty": "Kalyani Steel Works",
+    "amount": {
+      "currency": "INR",
+      "minor": 80000000
+    },
+    "description": "supplier invoice MTPL/2026/08/4472",
+    "requestedAt": "2026-08-20T14:32:07Z",
+    "id": "req_20260820_4472",
+    "nonce": "n-4472-16bd30aa",
+    "proof": {
+      "type": "JsonWebSignature2020",
+      "created": "2026-08-20T14:32:07Z",
+      "verificationMethod": "key:agent:f6EYkbTNfJfWIsDv",
+      "alg": "ES256",
+      "payloadDigest": "sha256:2loMPGaM3GQFgn9k5U-b4yUBEmvJA0opy2h0QIhfcE8",
+      "jws": "eyJhbGciOiJFUzI1NiIsImlhdCI6MTc4NzIzNjMyNywiandrIjp7ImNydiI6IlAtMjU2Iiwia3R5IjoiRUMiLCJ4IjoiUGNIUG8xOVpMTi1ZZ0MwZ3picW9qRkxPaHdVZko1SzZlajB4anFCdXhQNCIsInkiOiIyZnZYaVlpcE1Ld0FlbEE5X3FyQ041UHE3OXQxU1N6MWxOSXpsWTV3dHpjIn0sImtpZCI6ImtleTphZ2VudDpmNkVZa2JUTmZKZldJc0R2IiwicGF5bG9hZERpZ2VzdCI6InNoYTI1NjoybG9NUEdhTTNHUUZnbjlrNVUtYjR5VUJFbXZKQTBvcHkyaDBRSWhmY0U4IiwidHlwIjoid2FycmFudC1wcm9vZitqd3MifQ..ubDuNl-shib2Oq2B4jpnSTgvr-7JlXiCd-TVu40ErS5r_C8fZtLRCkJolNNyB0q3KSwqIpG0NiJk1OTvQSOYvg"
+    }
+  },
+  "authority": {
+    "chain": [
+      {
+        "version": "warrant/mandate/v0.1",
+        "id": "mnd_root_2026_08_001",
+        "organisation": {
+          "id": "org:meridian-technologies",
+          "name": "Meridian Technologies Pvt Ltd",
+          "jurisdiction": "IN-MH"
+        },
+        "liablePrincipal": {
+          "kind": "legal_person",
+          "id": "person:priya-sharma",
+          "name": "Priya Sharma",
+          "role": "Head of Finance",
+          "legalEntity": "Meridian Technologies Pvt Ltd",
+          "identifier": "DIN 09214477",
+          "keyId": "key:principal:pfBPZULv_ocFK2ic"
+        },
+        "issuer": {
+          "kind": "legal_person",
+          "id": "person:priya-sharma",
+          "name": "Priya Sharma",
+          "role": "Head of Finance",
+          "legalEntity": "Meridian Technologies Pvt Ltd",
+          "identifier": "DIN 09214477",
+          "keyId": "key:principal:pfBPZULv_ocFK2ic"
+        },
+        "subject": {
+          "kind": "agent",
+          "id": "agent:ap-agent-01",
+          "name": "AP-Agent-01",
+          "runtime": "Accounts payable agent, MCP runtime",
+          "keyId": "key:agent:9FZkZ2oHq9rsZvVS"
+        },
+        "parent": null,
+        "depth": 0,
+        "maxDelegationDepth": 2,
+        "scope": {
+          "actions": [
+            "invoice.read",
+            "payment.approve",
+            "payment.execute"
+          ],
+          "audience": [
+            "erp:meridian/accounts-payable",
+            "bank:hdfc/corporate-api"
+          ],
+          "counterparties": {
+            "allow": [
+              "Kalyani Steel Works",
+              "Sundaram Fasteners",
+              "Nagpur Logistics"
+            ]
+          },
+          "limits": {
+            "perAction": {
+              "currency": "INR",
+              "minor": 100000000
+            },
+            "perPeriod": {
+              "amount": {
+                "currency": "INR",
+                "minor": 400000000
+              },
+              "days": 30
+            }
+          },
+          "purpose": "Settlement of approved supplier invoices"
+        },
+        "notBefore": "2026-08-01T00:00:00Z",
+        "expiresAt": "2026-09-30T23:59:59Z",
+        "issuedAt": "2026-08-01T09:00:00Z",
+        "proof": {
+          "type": "JsonWebSignature2020",
+          "created": "2026-08-01T09:00:00Z",
+          "verificationMethod": "key:principal:pfBPZULv_ocFK2ic",
+          "alg": "ES256",
+          "payloadDigest": "sha256:gkNV-1aixFzNWANpSC5swGM1W826vIHm5r1RjWuFc10",
+          "jws": "eyJhbGciOiJFUzI1NiIsImlhdCI6MTc4NTU3NDgwMCwiandrIjp7ImNydiI6IlAtMjU2Iiwia3R5IjoiRUMiLCJ4IjoiVmMxazlyblFQM0c1cnZmV3k1RUFKd2ZpNjV0S1JTYmNELTFIMzVxWGEyayIsInkiOiJxc3ZvTlplOTdpMmEyZDRWWVBwbkluR0pCaWtzWFIzV0xyNDZpTlhIYVhNIn0sImtpZCI6ImtleTpwcmluY2lwYWw6cGZCUFpVTHZfb2NGSzJpYyIsInBheWxvYWREaWdlc3QiOiJzaGEyNTY6Z2tOVi0xYWl4RnpOV0FOcFNDNXN3R00xVzgyNnZJSG01cjFSald1RmMxMCIsInR5cCI6IndhcnJhbnQtcHJvb2YrandzIn0..3dCKDa3nLqKZq3o6t4O7Q5_SP8Hgjwh_GQCZhqitLuhVz61NQvh2UcPug_CCJptnu80nQLPZM_9-WmUUi3Gdfg"
+        }
+      },
+      {
+        "version": "warrant/mandate/v0.1",
+        "id": "mnd_dlg_2026_08_014",
+        "organisation": {
+          "id": "org:meridian-technologies",
+          "name": "Meridian Technologies Pvt Ltd",
+          "jurisdiction": "IN-MH"
+        },
+        "liablePrincipal": {
+          "kind": "legal_person",
+          "id": "person:priya-sharma",
+          "name": "Priya Sharma",
+          "role": "Head of Finance",
+          "legalEntity": "Meridian Technologies Pvt Ltd",
+          "identifier": "DIN 09214477",
+          "keyId": "key:principal:pfBPZULv_ocFK2ic"
+        },
+        "issuer": {
+          "kind": "agent",
+          "id": "agent:ap-agent-01",
+          "name": "AP-Agent-01",
+          "runtime": "Accounts payable agent, MCP runtime",
+          "keyId": "key:agent:9FZkZ2oHq9rsZvVS"
+        },
+        "subject": {
+          "kind": "agent",
+          "id": "agent:pay-agent-07",
+          "name": "PAY-Agent-07",
+          "runtime": "Payment execution agent, MCP runtime",
+          "keyId": "key:agent:f6EYkbTNfJfWIsDv"
+        },
+        "parent": {
+          "id": "mnd_root_2026_08_001",
+          "digest": "sha256:zgWQNZfNdCkEzf0g_9TvXAXOrceYXWhd8MWRisTvnwE"
+        },
+        "depth": 1,
+        "maxDelegationDepth": 2,
+        "scope": {
+          "actions": [
+            "payment.execute"
+          ],
+          "audience": [
+            "erp:meridian/accounts-payable",
+            "bank:hdfc/corporate-api"
+          ],
+          "counterparties": {
+            "allow": [
+              "Kalyani Steel Works",
+              "Sundaram Fasteners"
+            ]
+          },
+          "limits": {
+            "perAction": {
+              "currency": "INR",
+              "minor": 50000000
+            },
+            "perPeriod": {
+              "amount": {
+                "currency": "INR",
+                "minor": 150000000
+              },
+              "days": 30
+            }
+          },
+          "purpose": "Settlement of approved supplier invoices"
+        },
+        "notBefore": "2026-08-01T00:00:00Z",
+        "expiresAt": "2026-09-30T23:59:59Z",
+        "issuedAt": "2026-08-01T09:05:00Z",
+        "proof": {
+          "type": "JsonWebSignature2020",
+          "created": "2026-08-01T09:05:00Z",
+          "verificationMethod": "key:agent:9FZkZ2oHq9rsZvVS",
+          "alg": "ES256",
+          "payloadDigest": "sha256:3stPZfYAlbj3grCSR2x2eGdq-C-EbfKOIFrLSzcqZso",
+          "jws": "eyJhbGciOiJFUzI1NiIsImlhdCI6MTc4NTU3NTEwMCwiandrIjp7ImNydiI6IlAtMjU2Iiwia3R5IjoiRUMiLCJ4IjoiOXZUeG5zalFRRnh2ZU1fbmhwYjIyQ3F5R2VkMS1VazJoZDFjQ2lIaG5hOCIsInkiOiJxWjRoeXJHLUtUSWQ1a05DazhmTV9RbjBPU3FOcG9PWHdsTEZQbG5BeGRrIn0sImtpZCI6ImtleTphZ2VudDo5RlprWjJvSHE5cnNadlZTIiwicGF5bG9hZERpZ2VzdCI6InNoYTI1Njozc3RQWmZZQWxiajNnckNTUjJ4MmVHZHEtQy1FYmZLT0lGckxTemNxWnNvIiwidHlwIjoid2FycmFudC1wcm9vZitqd3MifQ..bw7LgCmqPYSNWP5Ji4fpGTl2GdMiqliVuiBWobNo9MbYF_rIev7OJ4abiDali7RcuYVXGYmZoY1nv5imrs7nQA"
+        }
+      }
+    ],
+    "effectiveScope": {
+      "actions": [
+        "payment.execute"
+      ],
+      "audience": [
+        "erp:meridian/accounts-payable",
+        "bank:hdfc/corporate-api"
+      ],
+      "counterparties": {
+        "allow": [
+          "Kalyani Steel Works",
+          "Sundaram Fasteners"
+        ]
+      },
+      "limits": {
+        "perAction": {
+          "currency": "INR",
+          "minor": 50000000
+        },
+        "perPeriod": {
+          "amount": {
+            "currency": "INR",
+            "minor": 150000000
+          },
+          "days": 30
+        }
+      },
+      "purpose": "Settlement of approved supplier invoices"
+    },
+    "liablePrincipal": {
+      "kind": "legal_person",
+      "id": "person:priya-sharma",
+      "name": "Priya Sharma",
+      "role": "Head of Finance",
+      "legalEntity": "Meridian Technologies Pvt Ltd",
+      "identifier": "DIN 09214477",
+      "keyId": "key:principal:pfBPZULv_ocFK2ic"
+    }
+  },
+  "decision": {
+    "version": "warrant/decision/v0.1",
+    "id": "dec_20260820_4472",
+    "gate": {
+      "id": "gate:meridian-ap-01",
+      "keyId": "key:gate:bP6EgqaO3BC-K-zS"
+    },
+    "requestDigest": "sha256:XkOyQBKpQESEUnAK2oroRI1fuSREGBwMlMv81kjg3YY",
+    "chainDigest": "sha256:pqWWveOTYeYDJMorRvXGlnQwBBP6EePrQArnbRdGRMk",
+    "inputs": {
+      "evaluatedAt": "2026-08-20T14:32:07Z",
+      "replayStatus": "fresh",
+      "freshness": {
+        "maxAgeSeconds": 300,
+        "clockSkewSeconds": 30
+      },
+      "priorSpend": {
+        "currency": "INR",
+        "minor": 63000000
+      },
+      "escalationThreshold": {
+        "currency": "INR",
+        "minor": 45000000
+      }
+    },
+    "verdict": "ALLOW",
+    "reason": "the requested amount exceeds the delegated per-action limit",
+    "checks": [
+      {
+        "id": "chain.rooted",
+        "title": "Chain begins at a root mandate",
+        "status": "pass",
+        "detail": "issued directly by Priya Sharma, Head of Finance"
+      },
+      {
+        "id": "chain.sequence",
+        "title": "Chain hops are contiguous",
+        "status": "pass",
+        "detail": "2 mandates in sequence"
+      },
+      {
+        "id": "chain.linkage",
+        "title": "Each hop is bound to the exact mandate above it",
+        "status": "pass",
+        "detail": "every parent digest matches the mandate supplied"
+      },
+      {
+        "id": "chain.signatures",
+        "title": "Every mandate is signed by its stated issuer",
+        "status": "pass",
+        "detail": "2 signatures verified with ES256"
+      },
+      {
+        "id": "chain.root_trusted",
+        "title": "Chain terminates in a known legal person",
+        "status": "pass",
+        "detail": "Priya Sharma — Meridian Technologies Pvt Ltd (DIN 09214477)"
+      },
+      {
+        "id": "chain.liable_principal",
+        "title": "Accountability is not reassigned down the chain",
+        "status": "pass",
+        "detail": "every hop remains answerable to Priya Sharma"
+      },
+      {
+        "id": "chain.narrowing",
+        "title": "Authority only narrows at each hop",
+        "status": "pass",
+        "detail": "1 delegation verified against the authority above"
+      },
+      {
+        "id": "chain.depth",
+        "title": "Delegation depth is within the permitted limit",
+        "status": "pass",
+        "detail": "1 of 2 permitted hops used"
+      },
+      {
+        "id": "temporal.validity",
+        "title": "Every mandate is inside its validity window",
+        "status": "pass",
+        "detail": "evaluated at 2026-08-20T14:32:07Z; earliest expiry 2026-09-30T23:59:59Z"
+      },
+      {
+        "id": "revocation.status",
+        "title": "No mandate in the chain has been revoked",
+        "status": "pass",
+        "detail": "checked against the revocation state published at 2026-08-20T14:00:00Z"
+      },
+      {
+        "id": "actor.binding",
+        "title": "The acting agent holds the mandate it presented",
+        "status": "pass",
+        "detail": "PAY-Agent-07 (agent:pay-agent-07) is the subject of the presenting mandate"
+      },
+      {
+        "id": "request.signature",
+        "title": "The request itself is signed and unaltered",
+        "status": "pass",
+        "detail": "signed by key:agent:f6EYkbTNfJfWIsDv at 2026-08-20T14:32:07Z"
+      },
+      {
+        "id": "actor.possession",
+        "title": "The requesting agent proved it holds the mandate's key",
+        "status": "pass",
+        "detail": "PAY-Agent-07 signed this request with key:agent:f6EYkbTNfJfWIsDv"
+      },
+      {
+        "id": "audience.binding",
+        "title": "The target system is covered by the mandate",
+        "status": "pass",
+        "detail": "bank:hdfc/corporate-api is within the delegated audience"
+      },
+      {
+        "id": "action.in_scope",
+        "title": "The requested action is inside the delegated scope",
+        "status": "pass",
+        "detail": "payment.execute is one of the delegated actions"
+      },
+      {
+        "id": "counterparty.allowed",
+        "title": "The counterparty is on the delegated list",
+        "status": "pass",
+        "detail": "Kalyani Steel Works is permitted"
+      },
+      {
+        "id": "limit.per_action",
+        "title": "The amount is within the per-action limit",
+        "status": "fail",
+        "detail": "the requested amount exceeds the delegated per-action limit",
+        "expected": "₹5,00,000.00",
+        "observed": "₹8,00,000.00"
+      },
+      {
+        "id": "limit.per_period",
+        "title": "The periodic budget has not been exhausted",
+        "status": "pass",
+        "detail": "₹14,30,000.00 of ₹15,00,000.00 across 30 days"
+      },
+      {
+        "id": "request.freshness",
+        "title": "The request was presented soon after it was signed",
+        "status": "pass",
+        "detail": "signed 0s before evaluation, within a window of at most 5m old, allowing 30s of clock skew"
+      },
+      {
+        "id": "replay.freshness",
+        "title": "The request has not been seen before",
+        "status": "pass",
+        "detail": "nonce n-4472-16bd30aa was unused"
+      }
+    ],
+    "effectiveScope": {
+      "actions": [
+        "payment.execute"
+      ],
+      "audience": [
+        "erp:meridian/accounts-payable",
+        "bank:hdfc/corporate-api"
+      ],
+      "counterparties": {
+        "allow": [
+          "Kalyani Steel Works",
+          "Sundaram Fasteners"
+        ]
+      },
+      "limits": {
+        "perAction": {
+          "currency": "INR",
+          "minor": 50000000
+        },
+        "perPeriod": {
+          "amount": {
+            "currency": "INR",
+            "minor": 150000000
+          },
+          "days": 30
+        }
+      },
+      "purpose": "Settlement of approved supplier invoices"
+    },
+    "liablePrincipal": {
+      "kind": "legal_person",
+      "id": "person:priya-sharma",
+      "name": "Priya Sharma",
+      "role": "Head of Finance",
+      "legalEntity": "Meridian Technologies Pvt Ltd",
+      "identifier": "DIN 09214477",
+      "keyId": "key:principal:pfBPZULv_ocFK2ic"
+    },
+    "evaluatedAt": "2026-08-20T14:32:07Z",
+    "proof": {
+      "type": "JsonWebSignature2020",
+      "created": "2026-08-20T14:32:07Z",
+      "verificationMethod": "key:gate:bP6EgqaO3BC-K-zS",
+      "alg": "ES256",
+      "payloadDigest": "sha256:Gv0HnAU6jwLXKABCSRDscC1-mZDzCorJO_mU1_0ppaw",
+      "jws": "eyJhbGciOiJFUzI1NiIsImlhdCI6MTc4NzIzNjMyNywiandrIjp7ImNydiI6IlAtMjU2Iiwia3R5IjoiRUMiLCJ4IjoiOElzZzJWZ2o3V2RjY3pyTTBORFBNeTd3OHZJU1MyWXNyN29iTG9DYUNCMCIsInkiOiJBV01jOGJSaFRZR0FLMFk4T3k3TUdySkZ2MEluakxMV29nV3V3QkFqRmxvIn0sImtpZCI6ImtleTpnYXRlOmJQNkVncWFPM0JDLUstelMiLCJwYXlsb2FkRGlnZXN0Ijoic2hhMjU2Okd2MEhuQVU2andMWEtBQkNTUkRzY0MxLW1aRHpDb3JKT19tVTFfMHBwYXciLCJ0eXAiOiJ3YXJyYW50LXByb29mK2p3cyJ9..bcAWc0VFcMuhjq6XwUBFX-BVlFpV55t8MZeBP4v9yytveVylh3CsuxyVRVVNLTuZ3ZYc3ti-SXFj7DjVcIMRvw"
+    }
+  },
+  "ledger": {
+    "entries": [
+      {
+        "seq": 0,
+        "prevDigest": "warrant/ledger/v0.1/genesis",
+        "type": "mandate.issued",
+        "recordedAt": "2026-08-01T09:00:00Z",
+        "ref": "mnd_root_2026_08_001",
+        "payloadDigest": "sha256:zgWQNZfNdCkEzf0g_9TvXAXOrceYXWhd8MWRisTvnwE",
+        "digest": "sha256:Rmhe0m2jAJdwMdRDVCUGDlc6l03HHfbwaMf6CmwMZO4"
+      },
+      {
+        "seq": 1,
+        "prevDigest": "sha256:Rmhe0m2jAJdwMdRDVCUGDlc6l03HHfbwaMf6CmwMZO4",
+        "type": "mandate.issued",
+        "recordedAt": "2026-08-01T09:05:00Z",
+        "ref": "mnd_dlg_2026_08_014",
+        "payloadDigest": "sha256:FRZBYONzckVzFZvTe9rJ2C6wDjqhtTWCcSH5Cy40HhA",
+        "digest": "sha256:bKCmrmSQ9iMGboAfDyYIv0fLWYTjVmYyxY5NIKPabuo"
+      },
+      {
+        "seq": 2,
+        "prevDigest": "sha256:bKCmrmSQ9iMGboAfDyYIv0fLWYTjVmYyxY5NIKPabuo",
+        "type": "action.requested",
+        "recordedAt": "2026-08-20T14:32:07Z",
+        "ref": "req_20260820_4472",
+        "payloadDigest": "sha256:XkOyQBKpQESEUnAK2oroRI1fuSREGBwMlMv81kjg3YY",
+        "digest": "sha256:51ibmKa4Z66YtGm3zkW1FDLnPptL5n4xEnTm3jp1R_Q"
+      },
+      {
+        "seq": 3,
+        "prevDigest": "sha256:51ibmKa4Z66YtGm3zkW1FDLnPptL5n4xEnTm3jp1R_Q",
+        "type": "decision.recorded",
+        "recordedAt": "2026-08-20T14:32:07Z",
+        "ref": "dec_20260820_4472",
+        "payloadDigest": "sha256:sVst2fY9Kve8TrLANy6adGL-3e5mJfj4e7g2KF3_T-I",
+        "digest": "sha256:eOnaiFrbnYdgRb7a_zBI-I_gUcRCV2eBfmPp3NDfPtU"
+      }
+    ],
+    "head": {
+      "seq": 3,
+      "digest": "sha256:eOnaiFrbnYdgRb7a_zBI-I_gUcRCV2eBfmPp3NDfPtU",
+      "entryCount": 4,
+      "signedAt": "2026-08-20T14:32:07Z",
+      "proof": {
+        "type": "JsonWebSignature2020",
+        "created": "2026-08-20T14:32:07Z",
+        "verificationMethod": "key:ledger:y2rsuX03fq8Bb7om",
+        "alg": "ES256",
+        "payloadDigest": "sha256:Jwi4nLSBQLoDs1qodSAphOs3VfheP-EhSqrA3Bhj5jM",
+        "jws": "eyJhbGciOiJFUzI1NiIsImlhdCI6MTc4NzIzNjMyNywiandrIjp7ImNydiI6IlAtMjU2Iiwia3R5IjoiRUMiLCJ4IjoiM3gwaGtFOXAxOFlic3Bnb3B1Q0FqbklRWEpFYkJMNDQtN1FRU1VISDJBdyIsInkiOiJxeF9yOWU1N0g5Zlc2QkpWNWNhR2FvWDFfSFpTdW0xTXdROTFVdEpGVDRrIn0sImtpZCI6ImtleTpsZWRnZXI6eTJyc3VYMDNmcThCYjdvbSIsInBheWxvYWREaWdlc3QiOiJzaGEyNTY6SndpNG5MU0JRTG9EczFxb2RTQXBoT3MzVmZoZVAtRWhTcXJBM0JoajVqTSIsInR5cCI6IndhcnJhbnQtcHJvb2YrandzIn0..qGOd4Dx474Q7YXR0InbA_7JeczGJ35X-RaerfSMkiJnetOKWMrWNeKwmaA0gGC9ccaSn0E8QF1-O_Zy9nVxSwQ"
+      }
+    }
+  },
+  "revocation": {
+    "asOf": "2026-08-20T14:00:00Z",
+    "revoked": [],
+    "proof": {
+      "type": "JsonWebSignature2020",
+      "created": "2026-08-20T14:00:00Z",
+      "verificationMethod": "key:ledger:y2rsuX03fq8Bb7om",
+      "alg": "ES256",
+      "payloadDigest": "sha256:x9eqhZi8eHXf-BJya3pKEvlVgHMD8oN_Ru6cVnOpU78",
+      "jws": "eyJhbGciOiJFUzI1NiIsImlhdCI6MTc4NzIzNDQwMCwiandrIjp7ImNydiI6IlAtMjU2Iiwia3R5IjoiRUMiLCJ4IjoiM3gwaGtFOXAxOFlic3Bnb3B1Q0FqbklRWEpFYkJMNDQtN1FRU1VISDJBdyIsInkiOiJxeF9yOWU1N0g5Zlc2QkpWNWNhR2FvWDFfSFpTdW0xTXdROTFVdEpGVDRrIn0sImtpZCI6ImtleTpsZWRnZXI6eTJyc3VYMDNmcThCYjdvbSIsInBheWxvYWREaWdlc3QiOiJzaGEyNTY6eDllcWhaaThlSFhmLUJKeWEzcEtFdmxWZ0hNRDhvTl9SdTZjVm5PcFU3OCIsInR5cCI6IndhcnJhbnQtcHJvb2YrandzIn0..dBPHJC9fNJZM172U34JsUxFFnEy_j7xmKKRZ0ClqOr1q_Q5Yn8Ik3j2HY4GRQ6x-L6gY1jn2TU2ewpSXqDZOIQ"
+    }
+  },
+  "trustRoots": [
+    {
+      "keyId": "key:principal:pfBPZULv_ocFK2ic",
+      "subject": "Priya Sharma, Finance Head, Meridian Technologies Pvt Ltd",
+      "role": "principal",
+      "publicKeyJwk": {
+        "kty": "EC",
+        "crv": "P-256",
+        "x": "Vc1k9rnQP3G5rvfWy5EAJwfi65tKRSbcD-1H35qXa2k",
+        "y": "qsvoNZe97i2a2d4VYPpnInGJBiksXR3WLr46iNXHaXM"
+      }
+    },
+    {
+      "keyId": "key:agent:9FZkZ2oHq9rsZvVS",
+      "subject": "AP-Agent-01, accounts payable agent",
+      "role": "agent",
+      "publicKeyJwk": {
+        "kty": "EC",
+        "crv": "P-256",
+        "x": "9vTxnsjQQFxveM_nhpb22CqyGed1-Uk2hd1cCiHhna8",
+        "y": "qZ4hyrG-KTId5kNCk8fM_Qn0OSqNpoOXwlLFPlnAxdk"
+      }
+    },
+    {
+      "keyId": "key:agent:f6EYkbTNfJfWIsDv",
+      "subject": "PAY-Agent-07, payment execution agent",
+      "role": "agent",
+      "publicKeyJwk": {
+        "kty": "EC",
+        "crv": "P-256",
+        "x": "PcHPo19ZLN-YgC0gzbqojFLOhwUfJ5K6ej0xjqBuxP4",
+        "y": "2fvXiYipMKwAelA9_qrCN5Pq79t1SSz1lNIzlY5wtzc"
+      }
+    },
+    {
+      "keyId": "key:agent:kfiR1GRUqNWRVEtR",
+      "subject": "SETTLE-Agent-12, settlement agent",
+      "role": "agent",
+      "publicKeyJwk": {
+        "kty": "EC",
+        "crv": "P-256",
+        "x": "nZPmrabRxinDtSAlRCAiGQ-tkdgoEKMIeWIjyDuOnb8",
+        "y": "cLTEJdCaq3L0Z6sj1C0_5vey-8zLhQawTv9ee9hbRog"
+      }
+    },
+    {
+      "keyId": "key:agent:s4HO0qIea7FDhjky",
+      "subject": "ROGUE-Agent-99, unregistered agent",
+      "role": "agent",
+      "publicKeyJwk": {
+        "kty": "EC",
+        "crv": "P-256",
+        "x": "ef3x3YownYAVqF5hdKLrBVt0KBLCbv5os8O2JGs4QXw",
+        "y": "gbS5h1khvPnLHew60FTXvZyEYFkbXvIWrvLS3FzomVE"
+      }
+    },
+    {
+      "keyId": "key:gate:bP6EgqaO3BC-K-zS",
+      "subject": "Warrant Gate (demonstration instance)",
+      "role": "gate",
+      "publicKeyJwk": {
+        "kty": "EC",
+        "crv": "P-256",
+        "x": "8Isg2Vgj7WdcczrM0NDPMy7w8vISS2Ysr7obLoCaCB0",
+        "y": "AWMc8bRhTYGAK0Y8Oy7MGrJFv0InjLLWogWuwBAjFlo"
+      }
+    },
+    {
+      "keyId": "key:ledger:y2rsuX03fq8Bb7om",
+      "subject": "Warrant recording service (demonstration instance)",
+      "role": "ledger",
+      "publicKeyJwk": {
+        "kty": "EC",
+        "crv": "P-256",
+        "x": "3x0hkE9p18YbspgopuCAjnIQXJEbBL44-7QQSUHH2Aw",
+        "y": "qx_r9e57H9fW6BJV5caGaoX1_HZSum1MwQ91UtJFT4k"
+      }
+    }
+  ],
+  "integrity": {
+    "packDigest": "sha256:B1mpHUfVkKoetKZBH5SoJ0Rz1rcCvVZTxOfXt_MzKLk",
+    "proof": {
+      "type": "JsonWebSignature2020",
+      "created": "2026-08-20T14:33:00Z",
+      "verificationMethod": "key:ledger:y2rsuX03fq8Bb7om",
+      "alg": "ES256",
+      "payloadDigest": "sha256:B1mpHUfVkKoetKZBH5SoJ0Rz1rcCvVZTxOfXt_MzKLk",
+      "jws": "eyJhbGciOiJFUzI1NiIsImlhdCI6MTc4NzIzNjM4MCwiandrIjp7ImNydiI6IlAtMjU2Iiwia3R5IjoiRUMiLCJ4IjoiM3gwaGtFOXAxOFlic3Bnb3B1Q0FqbklRWEpFYkJMNDQtN1FRU1VISDJBdyIsInkiOiJxeF9yOWU1N0g5Zlc2QkpWNWNhR2FvWDFfSFpTdW0xTXdROTFVdEpGVDRrIn0sImtpZCI6ImtleTpsZWRnZXI6eTJyc3VYMDNmcThCYjdvbSIsInBheWxvYWREaWdlc3QiOiJzaGEyNTY6QjFtcEhVZlZrS29ldEtaQkg1U29KMFJ6MXJjQ3ZWWlR4T2ZYdF9NektMayIsInR5cCI6IndhcnJhbnQtcHJvb2YrandzIn0..lmYt9-XRlxH8u0RNuYdiJ5Dy3E31U23d4EmlN_Zo93ToxEQwnplgORjWCENQccAqZjcOzJmFGj8hW2bD653wRQ"
+    }
+  }
+}

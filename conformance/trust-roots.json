@@ -1,0 +1,79 @@
+[
+  {
+    "keyId": "key:principal:pfBPZULv_ocFK2ic",
+    "subject": "Priya Sharma, Finance Head, Meridian Technologies Pvt Ltd",
+    "role": "principal",
+    "publicKeyJwk": {
+      "kty": "EC",
+      "crv": "P-256",
+      "x": "Vc1k9rnQP3G5rvfWy5EAJwfi65tKRSbcD-1H35qXa2k",
+      "y": "qsvoNZe97i2a2d4VYPpnInGJBiksXR3WLr46iNXHaXM"
+    }
+  },
+  {
+    "keyId": "key:agent:9FZkZ2oHq9rsZvVS",
+    "subject": "AP-Agent-01, accounts payable agent",
+    "role": "agent",
+    "publicKeyJwk": {
+      "kty": "EC",
+      "crv": "P-256",
+      "x": "9vTxnsjQQFxveM_nhpb22CqyGed1-Uk2hd1cCiHhna8",
+      "y": "qZ4hyrG-KTId5kNCk8fM_Qn0OSqNpoOXwlLFPlnAxdk"
+    }
+  },
+  {
+    "keyId": "key:agent:f6EYkbTNfJfWIsDv",
+    "subject": "PAY-Agent-07, payment execution agent",
+    "role": "agent",
+    "publicKeyJwk": {
+      "kty": "EC",
+      "crv": "P-256",
+      "x": "PcHPo19ZLN-YgC0gzbqojFLOhwUfJ5K6ej0xjqBuxP4",
+      "y": "2fvXiYipMKwAelA9_qrCN5Pq79t1SSz1lNIzlY5wtzc"
+    }
+  },
+  {
+    "keyId": "key:agent:kfiR1GRUqNWRVEtR",
+    "subject": "SETTLE-Agent-12, settlement agent",
+    "role": "agent",
+    "publicKeyJwk": {
+      "kty": "EC",
+      "crv": "P-256",
+      "x": "nZPmrabRxinDtSAlRCAiGQ-tkdgoEKMIeWIjyDuOnb8",
+      "y": "cLTEJdCaq3L0Z6sj1C0_5vey-8zLhQawTv9ee9hbRog"
+    }
+  },
+  {
+    "keyId": "key:agent:s4HO0qIea7FDhjky",
+    "subject": "ROGUE-Agent-99, unregistered agent",
+    "role": "agent",
+    "publicKeyJwk": {
+      "kty": "EC",
+      "crv": "P-256",
+      "x": "ef3x3YownYAVqF5hdKLrBVt0KBLCbv5os8O2JGs4QXw",
+      "y": "gbS5h1khvPnLHew60FTXvZyEYFkbXvIWrvLS3FzomVE"
+    }
+  },
+  {
+    "keyId": "key:gate:bP6EgqaO3BC-K-zS",
+    "subject": "Warrant Gate (demonstration instance)",
+    "role": "gate",
+    "publicKeyJwk": {
+      "kty": "EC",
+      "crv": "P-256",
+      "x": "8Isg2Vgj7WdcczrM0NDPMy7w8vISS2Ysr7obLoCaCB0",
+      "y": "AWMc8bRhTYGAK0Y8Oy7MGrJFv0InjLLWogWuwBAjFlo"
+    }
+  },
+  {
+    "keyId": "key:ledger:y2rsuX03fq8Bb7om",
+    "subject": "Warrant recording service (demonstration instance)",
+    "role": "ledger",
+    "publicKeyJwk": {
+      "kty": "EC",
+      "crv": "P-256",
+      "x": "3x0hkE9p18YbspgopuCAjnIQXJEbBL44-7QQSUHH2Aw",
+      "y": "qx_r9e57H9fW6BJV5caGaoX1_HZSum1MwQ91UtJFT4k"
+    }
+  }
+]

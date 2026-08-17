@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 import { readFile } from "node:fs/promises";
-import { verifyEvidencePack } from "@warrant/core";
-import type { Check, TrustRoot, VerificationReport } from "@warrant/core";
+import { runVector, verifyEvidencePack } from "@warrant/core";
+import type { Check, ConformanceManifest, TrustRoot, VerificationReport } from "@warrant/core";
 
 const USAGE = `warrant-verify - check a Warrant evidence pack without contacting anyone
 
   warrant-verify <pack.json> [options]
+  warrant-verify conformance <directory>
 
   --trust-roots <file>   verify against keys you obtained yourself, rather than
                          the keys carried inside the pack
@@ -186,4 +187,49 @@ async function main(): Promise<number> {
   return report.result === "VERIFIED" ? 0 : 1;
 }
 
-process.exitCode = await main();
+async function conformance(directory: string): Promise<number> {
+  const base = directory.endsWith("/") ? directory : `${directory}/`;
+  let manifest: ConformanceManifest;
+  let trustRoots: TrustRoot[];
+  try {
+    manifest = JSON.parse(await readFile(`${base}manifest.json`, "utf8")) as ConformanceManifest;
+    trustRoots = JSON.parse(await readFile(`${base}${manifest.trustRootsFile}`, "utf8")) as TrustRoot[];
+  } catch (error) {
+    console.error(`warrant-verify: cannot read the conformance suite: ${(error as Error).message}`);
+    return 2;
+  }
+
+  console.log("");
+  console.log(bold(`  Warrant conformance suite`));
+  console.log(`  ${dim(`${manifest.version} · ${manifest.vectors.length} vectors · ${directory}`)}`);
+  console.log("");
+
+  let failed = 0;
+  for (const vector of manifest.vectors) {
+    const pack: unknown = JSON.parse(await readFile(`${base}${vector.file}`, "utf8"));
+    const outcome = await runVector(vector, pack, trustRoots, manifest.generatedAt);
+    if (outcome.passed) {
+      console.log(`  ${green("PASS")}  ${vector.name}`);
+    } else {
+      failed += 1;
+      console.log(`  ${red("FAIL")}  ${vector.name}`);
+      for (const reason of outcome.failures) console.log(`        ${dim(reason)}`);
+    }
+  }
+
+  console.log("");
+  if (failed === 0) {
+    console.log(`  ${green("all " + manifest.vectors.length + " vectors behaved as the suite declares")}`);
+  } else {
+    console.log(`  ${red(failed + " of " + manifest.vectors.length + " vectors did not")}`);
+  }
+  console.log("");
+  return failed === 0 ? 0 : 1;
+}
+
+const argv = process.argv.slice(2);
+process.exitCode = argv[0] === "conformance"
+  ? argv[1]
+    ? await conformance(argv[1])
+    : (console.error("warrant-verify: conformance needs a directory"), 2)
+  : await main();

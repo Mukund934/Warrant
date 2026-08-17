@@ -22,7 +22,9 @@
     "test:watch": "vitest",
     "typecheck": "tsc --build && tsc -p tsconfig.test.json",
     "export:packs": "npm run build:core --silent && node scripts/export-packs.mjs",
-    "verify": "node packages/verifier/dist/cli.js"
+    "verify": "node packages/verifier/dist/cli.js",
+    "export:conformance": "npm run build:core --silent && node scripts/export-conformance.mjs",
+    "conformance": "node packages/verifier/dist/cli.js conformance ./conformance"
   },
   "devDependencies": {
     "@types/node": "^22.15.3",

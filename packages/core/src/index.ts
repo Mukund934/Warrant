@@ -1,5 +1,6 @@
 export * from "./types.js";
 export * from "./canonical.js";
+export * from "./conformance.js";
 export * from "./keys.js";
 export * from "./sign.js";
 export * from "./scope.js";
