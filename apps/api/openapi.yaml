@@ -82,6 +82,19 @@ paths:
         "400": { $ref: "#/components/responses/InvalidRequest" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /checkpoint:
+    post:
+      tags: [verification]
+      summary: Take a signed checkpoint over the current ledger head
+      description: >
+        On demand only. Nothing schedules this. The checkpoint commits to the ledger's head digest
+        and entry count, and is what would be submitted to an external transparency log — but
+        anchoring is supplemental. **A checkpoint that was never anchored is still a valid signed
+        commitment, and no authorization decision or verification depends on a log being reachable.**
+      responses:
+        "201": { description: The signed checkpoint. }
+        "422": { description: "`ledger_empty` — there is nothing to commit to yet." }
+
   /trust-roots:
     get:
       tags: [verification]

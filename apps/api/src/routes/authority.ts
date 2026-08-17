@@ -5,7 +5,7 @@ import { notFound } from "../http/errors.js";
 import { parseBody } from "../http/validate.js";
 import type { Repositories } from "../persistence/types.js";
 import { delegate, issueRoot, revoke } from "../services/issuance.js";
-import { submitAction } from "../services/execution.js";
+import { submitAction, takeCheckpoint } from "../services/execution.js";
 
 const isoDateTime = z
   .string()
@@ -76,6 +76,10 @@ export function authorityRoutes(repositories: Repositories): Router {
       packId: outcome.pack.packId,
       packDigest: outcome.pack.integrity.packDigest,
     });
+  });
+
+  router.post("/checkpoint", async (_request, response) => {
+    response.status(201).json(await takeCheckpoint(repositories));
   });
 
   return router;

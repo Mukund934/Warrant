@@ -1,5 +1,6 @@
 import {
   buildEvidencePack,
+  checkpointFor,
   digestOf,
   evaluate,
   signActionRequest,
@@ -7,6 +8,7 @@ import {
 } from "@warrant/core";
 import type {
   ActionRequest,
+  Checkpoint,
   Decision,
   EvidencePack,
   LedgerEntry,
@@ -20,6 +22,7 @@ import {
   ESCALATION_THRESHOLD,
   gate,
   identifier,
+  CHECKPOINT_ORIGIN,
   REQUEST_FRESHNESS,
   nowIso,
   recorder,
@@ -83,6 +86,16 @@ async function signSegment(
     signedAt,
   };
   return { ...unsigned, proof: await signDetached(unsigned, recorder, signedAt) };
+}
+
+export async function takeCheckpoint(repositories: Repositories): Promise<Checkpoint> {
+  const entries = await repositories.ledger.entries();
+  if (entries.length === 0) {
+    throw unprocessable("ledger_empty", "there is nothing to commit to yet");
+  }
+  const takenAt = nowIso();
+  const head = await signSegment(entries, entries.length, takenAt);
+  return checkpointFor(head, CHECKPOINT_ORIGIN, takenAt, recorder);
 }
 
 export async function submitAction(
