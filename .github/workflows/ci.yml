@@ -31,5 +31,8 @@ jobs:
 
       - run: npm run build
 
+      - name: generate the demonstration evidence packs
+        run: npm run export:packs
+
       - name: verify every demonstration pack offline
         run: node scripts/tamper-sweep.mjs
