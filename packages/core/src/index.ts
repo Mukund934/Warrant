@@ -11,3 +11,4 @@ export * from "./gate.js";
 export * from "./ledger.js";
 export * from "./evidence.js";
 export * from "./verify.js";
+export * from "./transparency.js";
