@@ -363,7 +363,7 @@ export async function verifyEvidencePack(
 
   const limitations = [
     `Revocation is verified against the signed snapshot published at ${pack.revocation.asOf}. This verifier is offline and cannot know whether a mandate was revoked after that moment.`,
-    "Whether the request nonce had been seen before is decided by the gate at the moment of the action. It cannot be recomputed from the pack.",
+    "Whether the request nonce had been seen before is decided by the gate at the moment of the action. It cannot be recomputed from the pack, so the recorded replay status is the gate's claim reproduced, not an independent finding — and it is only as strong as the scope of the nonce store that gate was using.",
     "The ledger is hash-chained and its head is signed, which detects alteration by a third party. It is not anchored to an external transparency log, so it does not detect the issuing organisation rewriting its own history from the genesis entry.",
   ];
 

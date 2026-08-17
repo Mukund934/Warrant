@@ -25,7 +25,10 @@ export interface LedgerRepository {
   entries(): Promise<LedgerEntry[]>;
 }
 
+export type ReplayScope = "process" | "deployment";
+
 export interface NonceStore {
+  readonly scope: ReplayScope;
   claim(nonce: string): Promise<boolean>;
 }
 

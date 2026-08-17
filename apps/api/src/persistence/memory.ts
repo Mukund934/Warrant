@@ -89,6 +89,7 @@ export class InMemoryLedgerRepository implements LedgerRepository {
 }
 
 export class InMemoryNonceStore implements NonceStore {
+  readonly scope = "process" as const;
   private readonly seen = new Set<string>();
 
   async claim(nonce: string): Promise<boolean> {

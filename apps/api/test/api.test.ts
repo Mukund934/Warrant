@@ -56,7 +56,12 @@ beforeEach(() => {
 describe("service surface", () => {
   it("reports that it runs without a database", async () => {
     const response = await request(app).get("/health").expect(200);
-    expect(response.body).toEqual({ status: "ok", persistence: "in-memory", database: false });
+    expect(response.body).toEqual({
+      status: "ok",
+      persistence: "in-memory",
+      database: false,
+      replayScope: "process",
+    });
   });
 
   it("publishes the trust roots", async () => {

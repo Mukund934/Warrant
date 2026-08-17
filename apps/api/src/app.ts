@@ -35,7 +35,12 @@ export function createApp(options: AppOptions = {}): Express {
   });
 
   app.get("/health", (_request, response) => {
-    response.json({ status: "ok", persistence: "in-memory", database: false });
+    response.json({
+      status: "ok",
+      persistence: "in-memory",
+      database: false,
+      replayScope: repositories.nonces.scope,
+    });
   });
 
   app.use("/v1", rateLimit({ windowMs: 60_000, max: 240 }));
