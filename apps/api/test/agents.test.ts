@@ -2,9 +2,9 @@ import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import request from "supertest";
 import type { Express } from "express";
 import { exportJWK, generateKeyPair } from "jose";
-import type { JWK } from "jose";
-import { verifyEvidencePack } from "@warrant/core";
-import type { EvidencePack } from "@warrant/core";
+import type { CryptoKey, JWK } from "jose";
+import { signActionRequest, signerFromJwk, verifyEvidencePack } from "@warrant/core";
+import type { ActionRequest, EvidencePack, PrivateKeyJwk } from "@warrant/core";
 import { apAgent, apAgentKey, trustRoots } from "@warrant/core/fixtures";
 import { createApp } from "../src/app.js";
 import { createInMemoryRepositories } from "../src/persistence/memory.js";
@@ -600,5 +600,192 @@ describe("what the published key set discloses, and what it must never let a ten
     const theirs = await request(app).get("/v1/trust-roots").set(as(kalyani)).expect(200);
     expect(theirs.body).toHaveLength(trustRoots.length);
     expect(JSON.stringify(theirs.body)).not.toMatch(/Meridian runner/);
+  }, 30_000);
+});
+
+describe("an agent acts by signing for itself", () => {
+  async function activeAgentHoldingItsOwnKey() {
+    const owner = await enrol("user_priya", "Meridian Technologies");
+    const { privateKey, publicKey } = await generateKeyPair("ES256", { extractable: true });
+    const jwk = (await exportJWK(privateKey)) as PrivateKeyJwk;
+
+    const registered = await request(app)
+      .post("/v1/agents")
+      .set(as(owner))
+      .send({
+        name: "Self-signing runner",
+        runtime: "node/22",
+        publicKeyJwk: await exportJWK(publicKey),
+      })
+      .expect(201);
+
+    const agentId = registered.body.id;
+    await move(owner, agentId, "active").expect(200);
+
+    const detail = await request(app).get(`/v1/agents/${agentId}`).set(as(owner)).expect(200);
+    const keyId = detail.body.keyId as string;
+
+    const mandate = await request(app)
+      .post("/v1/mandates")
+      .set(as(owner))
+      .send({ ...ROOT_MANDATE, agentId })
+      .expect(201);
+
+    return {
+      owner,
+      agentId,
+      keyId,
+      mandateId: mandate.body.id as string,
+      signer: signerFromJwk(keyId, jwk),
+      privateKey: privateKey as CryptoKey,
+    };
+  }
+
+  const sign = (
+    holder: { agentId: string; signer: ReturnType<typeof signerFromJwk> },
+    overrides: Partial<{ nonce: string; requestedAt: string; actor: string; amount: unknown }> = {},
+  ): Promise<ActionRequest> =>
+    signActionRequest(
+      {
+        id: `req_${crypto.randomUUID().replace(/-/g, "").slice(0, 20)}`,
+        nonce: (overrides.nonce ?? `nonce-${crypto.randomUUID()}`) as string,
+        actor: (overrides.actor ?? holder.agentId) as string,
+        action: "payment.execute",
+        resource: ERP,
+        counterparty: "Kalyani Steel Works",
+        description: "Invoice settled by the agent itself",
+        requestedAt: (overrides.requestedAt ?? new Date().toISOString().replace(/\.\d+Z$/, "Z")) as string,
+        amount: inr(100_000),
+      },
+      holder.signer,
+    );
+
+  const present = (holder: { owner: Member; mandateId: string }, signed: ActionRequest) =>
+    request(app)
+      .post("/v1/actions/signed")
+      .set(as(holder.owner))
+      .send({ mandateId: holder.mandateId, request: signed });
+
+  it("still refuses to sign on a registered agent's behalf, and says where to go", async () => {
+    const holder = await activeAgentHoldingItsOwnKey();
+
+    const response = await request(app)
+      .post("/v1/actions")
+      .set(as(holder.owner))
+      .send({
+        mandateId: holder.mandateId,
+        action: "payment.execute",
+        resource: ERP,
+        counterparty: "Kalyani Steel Works",
+        description: "Service tries to act for the agent",
+        nonce: `nonce-${crypto.randomUUID()}`,
+        amount: inr(100_000),
+      })
+      .expect(422);
+
+    expect(response.body.error).toBe("agent_key_unavailable");
+    expect(response.body.message).toMatch(/\/v1\/actions\/signed/);
+  }, 30_000);
+
+  it("accepts a request the agent signed and verifies it against the published key", async () => {
+    const holder = await activeAgentHoldingItsOwnKey();
+    const outcome = await present(holder, await sign(holder)).expect(201);
+
+    expect(outcome.body.verdict).toBe("ALLOW");
+
+    const checks = outcome.body.decision.checks as Array<{ id: string; status: string }>;
+    expect(checks.find((check) => check.id === "request.signature")?.status).toBe("pass");
+    expect(checks.find((check) => check.id === "actor.possession")?.status).toBe("pass");
+    expect(checks.find((check) => check.id === "agent.status")?.status).toBe("pass");
+
+    const stored = await request(app)
+      .get(`/v1/evidence/${outcome.body.packId}`)
+      .set(as(holder.owner))
+      .expect(200);
+    const report = await verifyEvidencePack(stored.body as EvidencePack, {
+      trustRoots: stored.body.trustRoots,
+    });
+    expect(report.result).toBe("VERIFIED");
+    expect(report.authority?.reproduced).toBe(true);
+  }, 30_000);
+
+  it("blocks a request signed by a key that is not the mandate subject's", async () => {
+    const holder = await activeAgentHoldingItsOwnKey();
+    const stranger = await generateKeyPair("ES256", { extractable: true });
+    const strangerJwk = (await exportJWK(stranger.privateKey)) as PrivateKeyJwk;
+
+    const forged = await sign({
+      agentId: holder.agentId,
+      signer: signerFromJwk(holder.keyId, strangerJwk),
+    });
+
+    const outcome = await present(holder, forged).expect(201);
+    expect(outcome.body.verdict).toBe("BLOCK");
+
+    const checks = outcome.body.decision.checks as Array<{ id: string; status: string }>;
+    expect(checks.find((check) => check.id === "request.signature")?.status).toBe("fail");
+  }, 30_000);
+
+  it("blocks a request whose actor is not the agent the mandate names", async () => {
+    const holder = await activeAgentHoldingItsOwnKey();
+    const outcome = await present(holder, await sign(holder, { actor: "agt_somebody_else" })).expect(
+      201,
+    );
+
+    expect(outcome.body.verdict).toBe("BLOCK");
+    const checks = outcome.body.decision.checks as Array<{ id: string; status: string }>;
+    expect(checks.find((check) => check.id === "actor.binding")?.status).toBe("fail");
+  }, 30_000);
+
+  it("finally makes the freshness window bite: a request signed long ago is refused", async () => {
+    const holder = await activeAgentHoldingItsOwnKey();
+    const stale = await sign(holder, { requestedAt: "2026-01-02T00:00:00Z" });
+
+    const outcome = await present(holder, stale).expect(201);
+    expect(outcome.body.verdict).toBe("BLOCK");
+
+    const freshness = (outcome.body.decision.checks as Array<{ id: string; status: string }>).find(
+      (check) => check.id === "request.freshness",
+    );
+    expect(freshness?.status).toBe("fail");
+  }, 30_000);
+
+  it("claims the nonce from the presented request, so a replay is caught", async () => {
+    const holder = await activeAgentHoldingItsOwnKey();
+    const nonce = `nonce-${crypto.randomUUID()}`;
+
+    const first = await present(holder, await sign(holder, { nonce })).expect(201);
+    expect(first.body.verdict).toBe("ALLOW");
+
+    const second = await present(holder, await sign(holder, { nonce })).expect(201);
+    expect(second.body.verdict).toBe("BLOCK");
+
+    const replay = (second.body.decision.checks as Array<{ id: string; status: string }>).find(
+      (check) => check.id === "replay.freshness",
+    );
+    expect(replay?.status).toBe("fail");
+  }, 30_000);
+
+  it("blocks once the agent is suspended, even though the signature is still good", async () => {
+    const holder = await activeAgentHoldingItsOwnKey();
+    await move(holder.owner, holder.agentId, "suspended", "under review").expect(200);
+
+    const outcome = await present(holder, await sign(holder)).expect(201);
+    expect(outcome.body.verdict).toBe("BLOCK");
+
+    const checks = outcome.body.decision.checks as Array<{ id: string; status: string }>;
+    expect(checks.find((check) => check.id === "request.signature")?.status).toBe("pass");
+    expect(checks.find((check) => check.id === "agent.status")?.status).toBe("fail");
+  }, 30_000);
+
+  it("refuses to present a request against another organisation's mandate", async () => {
+    const holder = await activeAgentHoldingItsOwnKey();
+    const outsider = await enrol("user_rahul", "Kalyani Steel Works");
+
+    await request(app)
+      .post("/v1/actions/signed")
+      .set(as(outsider))
+      .send({ mandateId: holder.mandateId, request: await sign(holder) })
+      .expect(404);
   }, 30_000);
 });

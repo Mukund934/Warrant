@@ -1,12 +1,12 @@
 import { Router } from "express";
 import { z } from "zod";
-import { moneySchema, scopeSchema } from "@warrant/core";
+import { actionRequestSchema, moneySchema, scopeSchema } from "@warrant/core";
 import { actorFor, scopeOf } from "../auth/tenancy.js";
 import { notFound } from "../http/errors.js";
 import { parseBody } from "../http/validate.js";
 import type { Repositories } from "../persistence/types.js";
 import { delegate, issueRoot, revoke } from "../services/issuance.js";
-import { submitAction, takeCheckpoint } from "../services/execution.js";
+import { submitAction, submitSignedAction, takeCheckpoint } from "../services/execution.js";
 
 const isoDateTime = z
   .string()
@@ -39,6 +39,11 @@ const actionSchema = z.object({
   description: z.string().min(1).max(240),
   nonce: z.string().min(8).max(120),
   amount: moneySchema.optional(),
+});
+
+const signedActionSchema = z.object({
+  mandateId: z.string().min(1),
+  request: actionRequestSchema,
 });
 
 export function authorityRoutes(repositories: Repositories): Router {
@@ -76,6 +81,19 @@ export function authorityRoutes(repositories: Repositories): Router {
     const body = parseBody(actionSchema, request.body);
     const actor = await actorFor(request, repositories);
     const outcome = await submitAction(body, repositories, actor);
+    response.status(201).json({
+      verdict: outcome.decision.verdict,
+      reason: outcome.decision.reason,
+      decision: outcome.decision,
+      packId: outcome.pack.packId,
+      packDigest: outcome.pack.integrity.packDigest,
+    });
+  });
+
+  router.post("/actions/signed", async (request, response) => {
+    const body = parseBody(signedActionSchema, request.body);
+    const actor = await actorFor(request, repositories);
+    const outcome = await submitSignedAction(body, repositories, actor);
     response.status(201).json({
       verdict: outcome.decision.verdict,
       reason: outcome.decision.reason,

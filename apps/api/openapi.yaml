@@ -107,6 +107,32 @@ paths:
         "400": { $ref: "#/components/responses/InvalidRequest" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /actions/signed:
+    post:
+      tags: [actions]
+      summary: Present an action the agent signed itself
+      description: >
+        For an agent whose private key this deployment does not hold, which is every registered agent.
+        The body carries a complete `ActionRequest` with its own proof; the service records and decides
+        it but does not sign it.
+
+        This is where proof of possession becomes real. The signing key must resolve through the
+        published trust roots and must be the subject key of the presenting mandate, so a request
+        signed by anything else fails `request.signature` or `actor.possession`. The nonce is claimed
+        from the presented request, so a replay is caught. And because `requestedAt` is now the agent's
+        own timestamp rather than the moment the service received it, **the freshness window is
+        load-bearing here for the first time** - a request signed too long ago is refused.
+
+        A refused action is still a 201 with a BLOCK, as everywhere else.
+      security: [{ bearerAuth: [] }]
+      responses:
+        "201":
+          description: The signed decision and its evidence pack. Verdict is ALLOW, BLOCK or ESCALATE.
+        "400": { $ref: "#/components/responses/InvalidRequest" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/InsufficientRole" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /checkpoint:
     post:
       tags: [verification]

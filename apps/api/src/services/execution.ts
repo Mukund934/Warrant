@@ -12,6 +12,7 @@ import type {
   Decision,
   EvidencePack,
   LedgerEntry,
+  Mandate,
   Money,
   RevocationSnapshot,
   SignedHead,
@@ -119,7 +120,7 @@ export async function submitAction(
   if (!signer) {
     throw unprocessable(
       "agent_key_unavailable",
-      `this deployment holds no signing key for ${leaf.subject.name}, so it cannot act as that agent`,
+      `this deployment holds no signing key for ${leaf.subject.name}. Sign the request with that agent's own key and present it to /v1/actions/signed`,
     );
   }
 
@@ -139,7 +140,37 @@ export async function submitAction(
     signer,
   );
 
-  const fresh = await repositories.nonces.claim(input.nonce);
+  return recordAction(request, chain, evaluatedAt, repositories, actor);
+}
+
+export interface PresentedActionInput {
+  mandateId: string;
+  request: ActionRequest;
+}
+
+export async function submitSignedAction(
+  input: PresentedActionInput,
+  repositories: Repositories,
+  actor: Actor = DEMONSTRATION_ACTOR,
+): Promise<SubmitActionResult> {
+  const chain = await repositories.mandates.findChain(input.mandateId, actor.scope);
+  if (!chain || chain.length === 0) {
+    throw notFound(`no mandate chain could be resolved for ${input.mandateId}`);
+  }
+
+  return recordAction(input.request, chain, nowIso(), repositories, actor);
+}
+
+async function recordAction(
+  request: ActionRequest,
+  chain: Mandate[],
+  evaluatedAt: string,
+  repositories: Repositories,
+  actor: Actor,
+): Promise<SubmitActionResult> {
+  const leaf = chain[chain.length - 1]!;
+
+  const fresh = await repositories.nonces.claim(request.nonce);
   const revocation = await revocationSnapshot(repositories, actor.scope);
   const roots = await trustRootsFor(repositories, actor.scope);
   const agentStatus = await agentStatusFor(repositories, leaf.subject.keyId);
