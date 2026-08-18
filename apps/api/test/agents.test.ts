@@ -540,3 +540,65 @@ describe("a lifecycle change never rewrites what already happened", () => {
     expect(revocations).toEqual([]);
   }, 30_000);
 });
+
+describe("what the published key set discloses, and what it must never let a tenant claim", () => {
+  it("serves the caller's own agent keys, so an independent verifier can obtain them", async () => {
+    const owner = await enrol("user_priya", "Meridian Technologies");
+    const agentId = await registerAgent(owner);
+    const key = await repositories.agents.currentKey(agentId);
+
+    const published = await request(app).get("/v1/trust-roots").set(as(owner)).expect(200);
+    expect(published.body.map((root: { keyId: string }) => root.keyId)).toContain(key?.keyId);
+
+    const anonymous = await request(app).get("/v1/trust-roots").expect(200);
+    expect(anonymous.body.map((root: { keyId: string }) => root.keyId)).not.toContain(key?.keyId);
+    expect(anonymous.body).toHaveLength(trustRoots.length);
+  }, 30_000);
+
+  it("never lets a registered key claim to be a principal, a gate or a ledger key", async () => {
+    const owner = await enrol("user_priya", "Meridian Technologies");
+    await registerAgent(owner, "First");
+    await registerAgent(owner, "Second");
+
+    const roots = await trustRootsFor(repositories, owner.organisationId);
+    const registered = roots.slice(trustRoots.length);
+
+    expect(registered).toHaveLength(2);
+    for (const root of registered) {
+      expect(root.role).toBe("agent");
+    }
+  }, 30_000);
+
+  it("keeps the fixture keys first, so a registered key can never shadow one", async () => {
+    const owner = await enrol("user_priya", "Meridian Technologies");
+    await registerAgent(owner);
+
+    const roots = await trustRootsFor(repositories, owner.organisationId);
+    expect(roots.slice(0, trustRoots.length).map((root) => root.keyId)).toEqual(
+      trustRoots.map((root) => root.keyId),
+    );
+  }, 30_000);
+
+  it("publishes no private material for any registered key", async () => {
+    const owner = await enrol("user_priya", "Meridian Technologies");
+    await registerAgent(owner);
+
+    const published = await request(app).get("/v1/trust-roots").set(as(owner)).expect(200);
+    const serialised = JSON.stringify(published.body);
+
+    expect(serialised).not.toMatch(/"d"\s*:/);
+    for (const root of published.body as Array<{ publicKeyJwk: Record<string, unknown> }>) {
+      expect(Object.keys(root.publicKeyJwk).sort()).toEqual(["crv", "kty", "x", "y"]);
+    }
+  }, 30_000);
+
+  it("shows one organisation nothing about another organisation's agents", async () => {
+    const meridian = await enrol("user_priya", "Meridian Technologies");
+    const kalyani = await enrol("user_rahul", "Kalyani Steel Works");
+    await registerAgent(meridian, "Meridian runner");
+
+    const theirs = await request(app).get("/v1/trust-roots").set(as(kalyani)).expect(200);
+    expect(theirs.body).toHaveLength(trustRoots.length);
+    expect(JSON.stringify(theirs.body)).not.toMatch(/Meridian runner/);
+  }, 30_000);
+});

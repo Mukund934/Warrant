@@ -6,7 +6,7 @@ import { z } from "zod";
 import { scopeOf } from "../auth/tenancy.js";
 import { notFound } from "../http/errors.js";
 import { parseBody } from "../http/validate.js";
-import { trustRoots } from "../warrant/context.js";
+import { trustRootsFor } from "../services/agents.js";
 import type { Repositories } from "../persistence/types.js";
 
 const verifyRequestSchema = z.object({
@@ -17,8 +17,8 @@ const verifyRequestSchema = z.object({
 export function catalogueRoutes(repositories: Repositories): Router {
   const router = Router();
 
-  router.get("/trust-roots", (_request, response) => {
-    response.json(trustRoots);
+  router.get("/trust-roots", async (request, response) => {
+    response.json(await trustRootsFor(repositories, scopeOf(request)));
   });
 
   router.get("/scenarios", async (_request, response) => {
