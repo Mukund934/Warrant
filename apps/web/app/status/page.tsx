@@ -16,7 +16,8 @@ const REAL = [
   "A published key set, key rotation that retires a key without invalidating history, and a conformance suite of committed golden vectors",
   "Signed ledger checkpoints and RFC 6962 inclusion proofs that verify offline",
   "PostgreSQL implementations of all four repositories, with replay protection enforced by a database constraint rather than by application code",
-  "230 tests, including chain splicing, role confusion, an end-to-end forged pack, and concurrent writers racing the same ledger",
+  "Access tokens checked against a published key set, organisations, four roles, and tenant isolation carried into the query rather than applied afterwards",
+  "280 tests, including chain splicing, role confusion, an end-to-end forged pack, concurrent writers racing the same ledger, and one organisation trying to read another's record",
 ];
 
 const SIMULATED = [
@@ -28,7 +29,7 @@ const SIMULATED = [
 
 const NOT_BUILT = [
   "Persistence on this deployment — the database code is written and tested, but this instance is not pointed at one, so it stores nothing between restarts",
-  "Authentication, tenancy or access control of any kind",
+  "Authentication on this deployment — it declares itself open and says so on /health. The token checking, organisations, roles and tenant isolation are built and tested; this instance runs without them so the demonstration stays open",
   "A way to obtain another organisation's keys automatically — the key set is published, but the URL is not yet named inside signed artifacts",
   "Submission of checkpoints to a public transparency log — the checkpoints and inclusion proofs exist, nothing is sent anywhere",
   "Adapters for MCP, SPIFFE, OAuth token exchange or any real agent runtime",

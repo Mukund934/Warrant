@@ -37,8 +37,17 @@ These are deliberate properties of a public demonstration. They are documented o
 - **Demonstration private keys are published** in this repository and served from the site, so that
   anyone can reproduce a scenario and forge a pack to watch it be rejected. No key here protects
   anything.
-- **The demonstration API has no authentication.** Anyone can issue mandates under the demonstration
-  keys.
+- **The demonstration API declares itself open, and therefore has no authentication.** Anyone can
+  issue mandates under the demonstration keys. A deployment chooses `open` or `required` and
+  reports which on `/health`; in `required` mode the authority endpoints need an ES256 access
+  token from the configured identity provider, and every record is scoped to an organisation.
+  **Authentication never moves a verdict** — the decision is a function of the mandate chain and
+  the signed evaluation inputs alone, so an offline verifier that never saw the caller reaches
+  the same result.
+- **Tenant separation is a data boundary, not yet a cryptographic one.** Organisations cannot
+  read each other's mandates, evidence or revocations, but the same demonstration keys sign for
+  all of them. Separately administered organisations with independent trust roots is a later
+  phase, and is not claimed here.
 - **Replay protection is process-scoped.** Nonce novelty is tracked in memory by a single process,
   and the service reports its own replay scope on `/health`.
 - **The ledger is tamper-evident, not tamper-proof.** Hash chaining with a signed head detects

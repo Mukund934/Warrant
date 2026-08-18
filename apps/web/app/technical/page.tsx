@@ -97,6 +97,10 @@ const ENDPOINTS = [
   ["POST", "/v1/mandates/:id/revocation", "Withdraw a mandate"],
   ["POST", "/v1/actions", "Run an action through the gate and record the evidence"],
   ["POST", "/v1/checkpoint", "Sign a checkpoint over the current ledger head, on demand"],
+  ["POST", "/v1/organisations", "Create an organisation; the authenticated caller becomes its owner"],
+  ["GET", "/v1/organisations", "The organisations this account belongs to, and its role in each"],
+  ["GET", "/v1/organisations/:id/members", "Who may act under this organisation"],
+  ["POST", "/v1/organisations/:id/members", "Grant a role; needs admin or owner"],
 ];
 
 const STATE_STYLE = {
@@ -133,8 +137,8 @@ const PROTOTYPE_VS_PRODUCTION = [
   },
   {
     area: "Authentication",
-    prototype: "None. Every page is public and every scenario is fixed.",
-    production: "Tenant isolation, an authenticated console, scoped API credentials, rate limits.",
+    prototype: "This deployment declares itself open, so the authority endpoints accept anyone. Every page is public and every scenario is fixed.",
+    production: "ES256 access tokens checked against the identity provider's published key set, organisations with owner, admin, member and auditor roles, and tenant isolation pushed into the query. Authentication decides who may call; the mandate chain still decides the answer.",
   },
 ];
 
