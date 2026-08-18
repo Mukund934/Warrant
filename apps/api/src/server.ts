@@ -1,5 +1,7 @@
 import { createApp } from "./app.js";
 import type { AppOptions } from "./app.js";
+import { supabaseTokenVerifier } from "./auth/principal.js";
+import type { AuthMode, TokenVerifier } from "./auth/principal.js";
 import {
   createPool,
   createPostgresRepositories,
@@ -12,6 +14,24 @@ const port = Number(process.env.PORT ?? 4000);
 const allowedOrigin = process.env.WARRANT_ALLOWED_ORIGIN ?? "*";
 const connectionString = process.env.DATABASE_URL;
 const caCertificate = process.env.DATABASE_CA_CERT;
+const projectUrl = process.env.SUPABASE_URL;
+
+const declaredMode = process.env.WARRANT_AUTH_MODE;
+if (declaredMode !== undefined && declaredMode !== "open" && declaredMode !== "required") {
+  console.error(`warrant api: WARRANT_AUTH_MODE must be "open" or "required", not "${declaredMode}"`);
+  process.exit(2);
+}
+const mode: AuthMode = declaredMode ?? "open";
+
+let verifier: TokenVerifier | undefined;
+if (projectUrl) {
+  verifier = supabaseTokenVerifier(projectUrl);
+}
+
+if (mode === "required" && !verifier) {
+  console.error("warrant api: WARRANT_AUTH_MODE=required needs SUPABASE_URL so tokens can be checked");
+  process.exit(2);
+}
 
 const pool = connectionString
   ? createPool({ connectionString, ...(caCertificate ? { caCertificate } : {}) })
@@ -19,6 +39,7 @@ const pool = connectionString
 
 const options: AppOptions = {
   allowedOrigin,
+  auth: { mode, ...(verifier ? { verifier } : {}) },
   ...(pool
     ? {
         repositories: createPostgresRepositories(pool, nonceRetentionSeconds(REQUEST_FRESHNESS)),
@@ -29,5 +50,8 @@ const options: AppOptions = {
 
 createApp(options).listen(port, () => {
   const persistence = pool ? "postgres" : "in-memory, no database";
-  console.log(`warrant api listening on http://localhost:${port} (${persistence})`);
+  console.log(`warrant api listening on http://localhost:${port} (${persistence}, auth ${mode})`);
+  if (mode === "open") {
+    console.warn("warrant api: authority endpoints accept unauthenticated callers (WARRANT_AUTH_MODE=open)");
+  }
 });

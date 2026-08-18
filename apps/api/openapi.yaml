@@ -8,8 +8,19 @@ info:
     independent of this API's version. `/v1` may change while `warrant/evidence-pack/v0.1` does not,
     and the reverse is also true. A relying party should pin the format, not the endpoint.
 
-    This deployment has no authentication. Anyone can issue mandates under the published
-    demonstration keys, which exist so that a reader can reproduce and forge packs for themselves.
+    Authentication is declared, not guessed. A deployment runs in one of two modes and reports
+    which on `/health` as `auth`. In `open` mode there is no authentication and anyone can issue
+    mandates under the published demonstration keys, which exist so that a reader can reproduce and
+    forge packs for themselves. In `required` mode the authority endpoints need a bearer token
+    issued by the identity provider named in `authIssuer`.
+
+    Authentication decides who may call, never what the answer is. The verdict on an action is a
+    function of the mandate chain and the signed evaluation inputs alone, so an offline verifier
+    that has never seen the caller reproduces the same result. No endpoint below changes behaviour
+    based on who is logged in.
+
+    The verification endpoints and the demonstration scenarios are public in both modes. A relying
+    party checking evidence must never need an account here.
 servers:
   - url: /v1
 
@@ -27,7 +38,9 @@ paths:
       tags: [mandates]
       summary: Issue a root mandate
       description: The issuer must be a principal key. Authority granted here is the ceiling for every hop below it.
+      security: [{ bearerAuth: [] }]
       responses:
+        "401": { $ref: "#/components/responses/Unauthenticated" }
         "201": { description: The signed mandate, at depth 0. }
         "400": { $ref: "#/components/responses/InvalidRequest" }
         "422": { description: The requested scope is not one this issuer may grant. }
@@ -37,7 +50,9 @@ paths:
       tags: [mandates]
       summary: Read a mandate and the chain above it
       parameters: [{ $ref: "#/components/parameters/MandateId" }]
+      security: [{ bearerAuth: [] }]
       responses:
+        "401": { $ref: "#/components/responses/Unauthenticated" }
         "200": { description: The mandate and its ancestors, root first. }
         "404": { $ref: "#/components/responses/NotFound" }
 
@@ -50,7 +65,9 @@ paths:
         window, or pass the maximum delegation depth. Absent fields inherit from the parent; they
         never widen.
       parameters: [{ $ref: "#/components/parameters/MandateId" }]
+      security: [{ bearerAuth: [] }]
       responses:
+        "401": { $ref: "#/components/responses/Unauthenticated" }
         "201": { description: The signed child mandate. }
         "404": { $ref: "#/components/responses/NotFound" }
         "422":
@@ -64,7 +81,9 @@ paths:
       summary: Revoke a mandate
       description: Revocation is published as a signed snapshot carrying the moment it was taken.
       parameters: [{ $ref: "#/components/parameters/MandateId" }]
+      security: [{ bearerAuth: [] }]
       responses:
+        "401": { $ref: "#/components/responses/Unauthenticated" }
         "201": { description: The updated signed revocation snapshot. }
         "404": { $ref: "#/components/responses/NotFound" }
 
@@ -76,7 +95,9 @@ paths:
         Runs the full check pipeline and returns a signed decision plus an evidence pack. **A refused
         action is a 201, not an error** — a BLOCK is a successful decision and valid evidence. Only a
         malformed request is a 4xx.
+      security: [{ bearerAuth: [] }]
       responses:
+        "401": { $ref: "#/components/responses/Unauthenticated" }
         "201":
           description: The signed decision and its evidence pack. Verdict is ALLOW, BLOCK or ESCALATE.
         "400": { $ref: "#/components/responses/InvalidRequest" }
@@ -91,7 +112,9 @@ paths:
         and entry count, and is what would be submitted to an external transparency log — but
         anchoring is supplemental. **A checkpoint that was never anchored is still a valid signed
         commitment, and no authorization decision or verification depends on a log being reachable.**
+      security: [{ bearerAuth: [] }]
       responses:
+        "401": { $ref: "#/components/responses/Unauthenticated" }
         "201": { description: The signed checkpoint. }
         "422": { description: "`ledger_empty` — there is nothing to commit to yet." }
 
@@ -163,8 +186,20 @@ components:
       required: true
       schema: { type: string }
 
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >
+        An ES256 access token from the configured identity provider, checked against its published
+        JWKS. Only ES256 is accepted, so a public key cannot be replayed as an HMAC secret. Claims
+        under `user_metadata` are user-writable and are never read.
+
   responses:
     InvalidRequest:
       description: "`invalid_request`, with a per-field list of what failed."
     NotFound:
       description: "`not_found`."
+    Unauthenticated:
+      description: "`unauthenticated`, with a `WWW-Authenticate: Bearer` header. Only in `required` mode."

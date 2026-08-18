@@ -1,5 +1,6 @@
 import { readFile, readdir } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
+import { PROTECTED_PATHS } from "../src/app.js";
 
 const specText = await readFile(new URL("../openapi.yaml", import.meta.url), "utf8");
 
@@ -39,8 +40,33 @@ describe("the published API spec", () => {
     expect(specText).toMatch(/pin the format, not the endpoint/);
   });
 
-  it("states that this deployment has no authentication", () => {
-    expect(specText).toMatch(/no authentication/);
+  it("describes both authentication modes rather than assuming one", () => {
+    expect(specText).toMatch(/`open` mode there is no authentication/);
+    expect(specText).toMatch(/`required` mode the authority endpoints need a bearer token/);
+  });
+
+  it("says plainly that authentication does not move the verdict", () => {
+    expect(specText).toMatch(/Authentication decides who may call, never what the answer is/);
+  });
+
+  it("marks exactly the operations the code puts behind the guard", () => {
+    const boundary = /\n {2}\/[a-z{}/-]*:/;
+
+    const guarded = declaredPaths.filter((path) => {
+      const section = specText.slice(specText.indexOf(`\n  ${path}:`) + 1);
+      const next = section.slice(1).search(boundary);
+      const operation = next === -1 ? section : section.slice(0, next + 1);
+      return /security: \[\{ bearerAuth/.test(operation);
+    });
+
+    const expected = declaredPaths.filter((path) =>
+      PROTECTED_PATHS.some((prefix) => {
+        const withoutVersion = prefix.replace(/^\/v1/, "");
+        return path === withoutVersion || path.startsWith(`${withoutVersion}/`);
+      }),
+    );
+
+    expect(guarded.sort()).toEqual(expected.sort());
   });
 
   it("records that a refused action is a successful decision, not an error", () => {

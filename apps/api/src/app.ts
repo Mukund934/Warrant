@@ -1,11 +1,15 @@
 import express from "express";
 import type { Express } from "express";
+import { assertCoherent, identify, requirePrincipal } from "./auth/middleware.js";
+import type { AuthOptions } from "./auth/middleware.js";
 import { errorHandler, notFoundHandler } from "./http/errors.js";
 import { rateLimit } from "./http/rate-limit.js";
 import { createInMemoryRepositories } from "./persistence/memory.js";
 import type { Repositories } from "./persistence/types.js";
 import { authorityRoutes } from "./routes/authority.js";
 import { catalogueRoutes } from "./routes/catalogue.js";
+
+export const PROTECTED_PATHS = ["/v1/mandates", "/v1/actions", "/v1/checkpoint"];
 
 export interface DatabaseProbe {
   probe(): Promise<boolean>;
@@ -15,12 +19,16 @@ export interface AppOptions {
   repositories?: Repositories;
   allowedOrigin?: string;
   database?: DatabaseProbe;
+  auth?: AuthOptions;
 }
 
 export function createApp(options: AppOptions = {}): Express {
   const repositories = options.repositories ?? createInMemoryRepositories();
   const allowedOrigin = options.allowedOrigin ?? "*";
   const database = options.database;
+  const auth: AuthOptions = options.auth ?? { mode: "open" };
+
+  assertCoherent(auth);
 
   const app = express();
   app.disable("x-powered-by");
@@ -31,7 +39,7 @@ export function createApp(options: AppOptions = {}): Express {
   app.use((_request, response, next) => {
     response.set("x-content-type-options", "nosniff");
     response.set("access-control-allow-origin", allowedOrigin);
-    response.set("access-control-allow-headers", "content-type");
+    response.set("access-control-allow-headers", "content-type,authorization");
     response.set("access-control-allow-methods", "GET,POST,OPTIONS");
     next();
   });
@@ -50,11 +58,15 @@ export function createApp(options: AppOptions = {}): Express {
       database: Boolean(database),
       databaseReachable: reachable,
       replayScope: repositories.nonces.scope,
+      auth: auth.mode,
+      authIssuer: auth.verifier ? auth.verifier.issuer : null,
     });
   });
 
   app.use("/v1", rateLimit({ windowMs: 60_000, max: 240 }));
+  app.use("/v1", identify(auth));
   app.use("/v1", catalogueRoutes(repositories));
+  app.use(PROTECTED_PATHS, requirePrincipal(auth));
   app.use("/v1", authorityRoutes(repositories));
 
   app.use(notFoundHandler);

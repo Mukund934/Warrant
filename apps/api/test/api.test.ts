@@ -62,6 +62,8 @@ describe("service surface", () => {
       database: false,
       databaseReachable: false,
       replayScope: "process",
+      auth: "open",
+      authIssuer: null,
     });
   });
 
@@ -75,6 +77,8 @@ describe("service surface", () => {
       database: true,
       databaseReachable: false,
       replayScope: "process",
+      auth: "open",
+      authIssuer: null,
     });
   });
 

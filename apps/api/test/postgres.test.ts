@@ -192,6 +192,8 @@ withDatabase("the whole API on top of PostgreSQL", () => {
       database: true,
       databaseReachable: true,
       replayScope: "deployment",
+      auth: "open",
+      authIssuer: null,
     });
   });
 
