@@ -493,3 +493,114 @@ withDatabase("tenant isolation, enforced by the database rather than by the call
     ).rejects.toThrow(/foreign key|violates/i);
   }, 60_000);
 });
+
+withDatabase("an assurance block survives a jsonb round trip", () => {
+  let identity: TestIdentity;
+  let member = { token: "", organisationId: "" };
+
+  function boot() {
+    return createApp({
+      repositories: createPostgresRepositories(main.admin, 600),
+      auth: { mode: "required", verifier: identity.verifier },
+    });
+  }
+
+  const as = (who: { token: string }) => ({ authorization: `Bearer ${who.token}` });
+
+  beforeAll(async () => {
+    if (!databaseAvailable) return;
+    identity = await testIdentity();
+    const stamp = crypto.randomUUID().slice(0, 8);
+    const token = await identity.mint(`user_anchor_${stamp}`, `anchor_${stamp}@example.test`);
+    const created = await request(boot())
+      .post("/v1/organisations")
+      .set("authorization", `Bearer ${token}`)
+      .send({ name: `Anchor ${stamp}`, jurisdiction: "IN-MH" })
+      .expect(201);
+    member = { token, organisationId: created.body.id as string };
+  }, 120_000);
+
+  it("comes back from the database byte for byte, signature intact", async () => {
+    const app = boot();
+    const issued = await request(app)
+      .post("/v1/mandates")
+      .set(as(member))
+      .send({ scope: rootScope, ...validity, maxDelegationDepth: 2 })
+      .expect(201);
+
+    const reread = await request(app).get(`/v1/mandates/${issued.body.id}`).set(as(member)).expect(200);
+
+    expect(reread.body.mandate).toEqual(issued.body);
+    expect(reread.body.mandate.liablePrincipal.assurance).toEqual(
+      issued.body.liablePrincipal.assurance,
+    );
+    expect(reread.body.mandate.liablePrincipal.assurance.reference).toBeUndefined();
+    expect("reference" in reread.body.mandate.liablePrincipal.assurance).toBe(false);
+
+    const stored = await main.admin.query<{ document: { liablePrincipal: { assurance: unknown } } }>(
+      "select document from mandates where id = $1",
+      [issued.body.id],
+    );
+    expect(stored.rows[0]?.document.liablePrincipal.assurance).not.toBeNull();
+  }, 60_000);
+
+  it("still verifies offline after the pack has been through the database", async () => {
+    const app = boot();
+    const root = await request(app)
+      .post("/v1/mandates")
+      .set(as(member))
+      .send({ scope: rootScope, ...validity, maxDelegationDepth: 2 })
+      .expect(201);
+
+    const delegated = await request(app)
+      .post(`/v1/mandates/${root.body.id}/delegations`)
+      .set(as(member))
+      .send({ scopeDelta: { actions: ["payment.execute"], limits: { perAction: inr(500_000) } } })
+      .expect(201);
+
+    expect(delegated.body.liablePrincipal).toEqual(root.body.liablePrincipal);
+
+    const recorded = await request(app)
+      .post("/v1/actions")
+      .set(as(member))
+      .send({
+        mandateId: delegated.body.id,
+        action: "payment.execute",
+        resource: "erp:meridian/accounts-payable",
+        counterparty: KALYANI,
+        description: "Invoice under a real accountable human",
+        nonce: `nonce_${crypto.randomUUID()}`,
+        amount: inr(100_000),
+      })
+      .expect(201);
+
+    const stored = await request(app)
+      .get(`/v1/evidence/${recorded.body.packId}`)
+      .set(as(member))
+      .expect(200);
+
+    const report = await verifyEvidencePack(stored.body as EvidencePack, { trustRoots });
+    expect(report.result).toBe("VERIFIED");
+    expect(report.authority?.reproduced).toBe(true);
+
+    const assurance = report.authority?.checks.find((check) => check.id === "principal.assurance");
+    expect(assurance?.status).toBe("warn");
+  }, 60_000);
+
+  it("names the caller's own organisation as the legal entity", async () => {
+    const app = boot();
+    const issued = await request(app)
+      .post("/v1/mandates")
+      .set(as(member))
+      .send({ scope: rootScope, ...validity, maxDelegationDepth: 1 })
+      .expect(201);
+
+    const organisation = await main.admin.query<{ name: string }>(
+      "select name from organisations where id = $1",
+      [member.organisationId],
+    );
+
+    expect(issued.body.liablePrincipal.legalEntity).toBe(organisation.rows[0]?.name);
+    expect(issued.body.organisation.name).toBe(organisation.rows[0]?.name);
+  }, 60_000);
+});
