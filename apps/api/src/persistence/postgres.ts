@@ -1,9 +1,11 @@
 import pg from "pg";
 import type { Pool } from "pg";
 import { GENESIS_DIGEST, WarrantError, ledgerEntryDigest } from "@warrant/core";
-import type { EvidencePack, LedgerEntry, Mandate } from "@warrant/core";
+import type { AgentStatus, EvidencePack, LedgerEntry, Mandate } from "@warrant/core";
 import type {
   Account,
+  AgentKey,
+  AgentRepository,
   DirectoryRepository,
   EvidenceRepository,
   LedgerRepository,
@@ -13,6 +15,7 @@ import type {
   MembershipRole,
   NonceStore,
   Organisation,
+  RegisteredAgent,
   ReplayScope,
   Repositories,
   RevocationRecord,
@@ -330,6 +333,196 @@ export class PostgresEvidenceRepository implements EvidenceRepository {
   }
 }
 
+
+interface AgentRow {
+  id: string;
+  organisation_id: string;
+  name: string;
+  runtime: string;
+  status: AgentStatus;
+  registered_at: Date;
+  status_changed_at: Date;
+  status_reason: string | null;
+}
+
+interface AgentKeyRow {
+  key_id: string;
+  agent_id: string;
+  public_key_jwk: AgentKey["publicKeyJwk"];
+  signing_from: Date;
+  signing_until: Date | null;
+}
+
+function agentFrom(row: AgentRow): RegisteredAgent {
+  return {
+    id: row.id,
+    organisationId: row.organisation_id,
+    name: row.name,
+    runtime: row.runtime,
+    status: row.status,
+    registeredAt: isoFromDatabase(row.registered_at),
+    statusChangedAt: isoFromDatabase(row.status_changed_at),
+    ...(row.status_reason ? { statusReason: row.status_reason } : {}),
+  };
+}
+
+function agentKeyFrom(row: AgentKeyRow): AgentKey {
+  return {
+    keyId: row.key_id,
+    agentId: row.agent_id,
+    publicKeyJwk: row.public_key_jwk,
+    signingFrom: isoFromDatabase(row.signing_from),
+    ...(row.signing_until ? { signingUntil: isoFromDatabase(row.signing_until) } : {}),
+  };
+}
+
+const AGENT_COLUMNS =
+  "id, organisation_id, name, runtime, status, registered_at, status_changed_at, status_reason";
+const AGENT_KEY_COLUMNS = "key_id, agent_id, public_key_jwk, signing_from, signing_until";
+
+export class PostgresAgentRepository implements AgentRepository {
+  constructor(private readonly pool: Pool) {}
+
+  async register(agent: RegisteredAgent, key: AgentKey): Promise<boolean> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("begin");
+      const inserted = await client.query(
+        `insert into agents (id, organisation_id, name, runtime, status, registered_at, status_changed_at, status_reason)
+         values ($1, $2, $3, $4, $5, $6, $7, $8)
+         on conflict do nothing`,
+        [
+          agent.id,
+          agent.organisationId,
+          agent.name,
+          agent.runtime,
+          agent.status,
+          agent.registeredAt,
+          agent.statusChangedAt,
+          agent.statusReason ?? null,
+        ],
+      );
+      if (inserted.rowCount !== 1) {
+        await client.query("rollback");
+        return false;
+      }
+
+      await client.query(
+        `insert into agent_keys (key_id, agent_id, public_key_jwk, signing_from)
+         values ($1, $2, $3, $4)`,
+        [key.keyId, key.agentId, key.publicKeyJwk, key.signingFrom],
+      );
+
+      await client.query("commit");
+      return true;
+    } catch (error) {
+      await client.query("rollback").catch(() => undefined);
+      if ((error as { code?: string }).code === "23505") return false;
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async findById(id: string, scope: TenantScope): Promise<RegisteredAgent | undefined> {
+    const rows = await this.pool.query<AgentRow>(
+      `select ${AGENT_COLUMNS} from agents
+       where id = $1 and ($2::text is null or organisation_id = $2)`,
+      [id, scope],
+    );
+    const row = rows.rows[0];
+    return row ? agentFrom(row) : undefined;
+  }
+
+  async findByKeyId(keyId: string): Promise<RegisteredAgent | undefined> {
+    const rows = await this.pool.query<AgentRow>(
+      `select ${AGENT_COLUMNS.split(", ").map((column) => `agents.${column}`).join(", ")}
+       from agents join agent_keys on agent_keys.agent_id = agents.id
+       where agent_keys.key_id = $1`,
+      [keyId],
+    );
+    const row = rows.rows[0];
+    return row ? agentFrom(row) : undefined;
+  }
+
+  async list(scope: TenantScope): Promise<RegisteredAgent[]> {
+    const rows = await this.pool.query<AgentRow>(
+      `select ${AGENT_COLUMNS} from agents
+       where ($1::text is null or organisation_id = $1)
+       order by name`,
+      [scope],
+    );
+    return rows.rows.map(agentFrom);
+  }
+
+  async setStatus(
+    id: string,
+    status: AgentStatus,
+    changedAt: string,
+    reason: string | undefined,
+    scope: TenantScope,
+  ): Promise<boolean> {
+    const updated = await this.pool.query(
+      `update agents set status = $2, status_changed_at = $3, status_reason = $4
+       where id = $1 and ($5::text is null or organisation_id = $5)`,
+      [id, status, changedAt, reason ?? null, scope],
+    );
+    return updated.rowCount === 1;
+  }
+
+  async currentKey(agentId: string): Promise<AgentKey | undefined> {
+    const rows = await this.pool.query<AgentKeyRow>(
+      `select ${AGENT_KEY_COLUMNS} from agent_keys
+       where agent_id = $1 and signing_until is null`,
+      [agentId],
+    );
+    const row = rows.rows[0];
+    return row ? agentKeyFrom(row) : undefined;
+  }
+
+  async keysFor(organisationId: string): Promise<AgentKey[]> {
+    const rows = await this.pool.query<AgentKeyRow>(
+      `select ${AGENT_KEY_COLUMNS.split(", ").map((column) => `agent_keys.${column}`).join(", ")}
+       from agent_keys join agents on agents.id = agent_keys.agent_id
+       where agents.organisation_id = $1
+       order by agent_keys.signing_from, agent_keys.key_id`,
+      [organisationId],
+    );
+    return rows.rows.map(agentKeyFrom);
+  }
+
+  async rotate(agentId: string, replacement: AgentKey, retiredAt: string): Promise<boolean> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("begin");
+      const retired = await client.query(
+        `update agent_keys set signing_until = $2
+         where agent_id = $1 and signing_until is null`,
+        [agentId, retiredAt],
+      );
+      if (retired.rowCount !== 1) {
+        await client.query("rollback");
+        return false;
+      }
+
+      await client.query(
+        `insert into agent_keys (key_id, agent_id, public_key_jwk, signing_from)
+         values ($1, $2, $3, $4)`,
+        [replacement.keyId, replacement.agentId, replacement.publicKeyJwk, replacement.signingFrom],
+      );
+
+      await client.query("commit");
+      return true;
+    } catch (error) {
+      await client.query("rollback").catch(() => undefined);
+      if ((error as { code?: string }).code === "23505") return false;
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+}
+
 export async function pingDatabase(pool: Pool): Promise<boolean> {
   try {
     await pool.query("select 1");
@@ -446,5 +639,6 @@ export function createPostgresRepositories(pool: Pool, retentionSeconds: number)
     ledger: new PostgresLedgerRepository(pool),
     nonces: new PostgresNonceStore(pool, retentionSeconds),
     directory: new PostgresDirectoryRepository(pool),
+    agents: new PostgresAgentRepository(pool),
   };
 }

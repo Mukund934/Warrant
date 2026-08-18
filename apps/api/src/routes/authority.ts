@@ -17,12 +17,14 @@ const issueSchema = z.object({
   notBefore: isoDateTime,
   expiresAt: isoDateTime,
   maxDelegationDepth: z.number().int().min(0).max(8),
+  agentId: z.string().min(1).optional(),
 });
 
 const delegateSchema = z.object({
   scopeDelta: scopeSchema.partial(),
   notBefore: isoDateTime.optional(),
   expiresAt: isoDateTime.optional(),
+  agentId: z.string().min(1).optional(),
 });
 
 const revokeSchema = z.object({

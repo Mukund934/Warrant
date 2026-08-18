@@ -18,6 +18,7 @@ import type {
 } from "@warrant/core";
 import { notFound, unprocessable } from "../http/errors.js";
 import type { Repositories, TenantScope } from "../persistence/types.js";
+import { agentStatusFor, trustRootsFor } from "./agents.js";
 import { DEMONSTRATION_ACTOR } from "./issuance.js";
 import type { Actor } from "./issuance.js";
 import {
@@ -29,7 +30,6 @@ import {
   nowIso,
   recorder,
   signerForKeyId,
-  trustRoots,
 } from "../warrant/context.js";
 
 export interface SubmitActionInput {
@@ -141,6 +141,8 @@ export async function submitAction(
 
   const fresh = await repositories.nonces.claim(input.nonce);
   const revocation = await revocationSnapshot(repositories, actor.scope);
+  const roots = await trustRootsFor(repositories, actor.scope);
+  const agentStatus = await agentStatusFor(repositories, leaf.subject.keyId);
 
   const perPeriod = leaf.scope.limits.perPeriod;
   const priorSpend = perPeriod
@@ -158,13 +160,14 @@ export async function submitAction(
     request,
     chain,
     {
-      trustRoots,
+      trustRoots: roots,
       revocation,
       inputs: {
         evaluatedAt,
         replayStatus: fresh ? "fresh" : "replayed",
         freshness: REQUEST_FRESHNESS,
         escalationThreshold: ESCALATION_THRESHOLD,
+        ...(agentStatus ? { agentStatus } : {}),
         ...(priorSpend ? { priorSpend } : {}),
       },
     },
@@ -197,7 +200,7 @@ export async function submitAction(
       decision,
       ledger: { entries: segment, head: await signSegment(segment, total, nowIso()) },
       revocation,
-      trustRoots,
+      trustRoots: roots,
     },
     recorder,
   );

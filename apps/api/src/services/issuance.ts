@@ -1,6 +1,7 @@
 import { DelegationError, delegateMandate, digestOf, issueRootMandate } from "@warrant/core";
 import type { LegalPerson, Mandate, Scope, ScopeDelta } from "@warrant/core";
 import { notFound, unprocessable } from "../http/errors.js";
+import { subjectAgentFor } from "./agents.js";
 import type { Repositories, TenantScope } from "../persistence/types.js";
 import {
   apAgent,
@@ -73,6 +74,7 @@ export interface IssueRootInput {
   notBefore: string;
   expiresAt: string;
   maxDelegationDepth: number;
+  agentId?: string;
 }
 
 export async function issueRoot(
@@ -80,6 +82,10 @@ export async function issueRoot(
   repositories: Repositories,
   actor: Actor = DEMONSTRATION_ACTOR,
 ): Promise<Mandate> {
+  const subject = input.agentId
+    ? await subjectAgentFor(repositories, input.agentId, actor.scope)
+    : apAgent;
+
   let mandate: Mandate;
   try {
     mandate = await issueRootMandate(
@@ -87,7 +93,7 @@ export async function issueRoot(
         id: identifier("mnd"),
         organisation: actor.organisation,
         liablePrincipal: actor.liablePrincipal,
-        subject: apAgent,
+        subject,
         scope: input.scope,
         maxDelegationDepth: input.maxDelegationDepth,
         notBefore: input.notBefore,
@@ -108,6 +114,7 @@ export interface DelegateInput {
   scopeDelta: ScopeDelta;
   notBefore?: string;
   expiresAt?: string;
+  agentId?: string;
 }
 
 export async function delegate(
@@ -127,13 +134,17 @@ export async function delegate(
     );
   }
 
+  const subject = input.agentId
+    ? await subjectAgentFor(repositories, input.agentId, actor.scope)
+    : paymentAgent;
+
   let mandate: Mandate;
   try {
     mandate = await delegateMandate(
       {
         id: identifier("mnd"),
         parent,
-        subject: paymentAgent,
+        subject,
         scopeDelta: input.scopeDelta,
         notBefore: input.notBefore ?? parent.notBefore,
         expiresAt: input.expiresAt ?? parent.expiresAt,
