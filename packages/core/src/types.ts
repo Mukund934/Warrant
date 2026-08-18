@@ -30,6 +30,20 @@ export const proofSchema = z.object({
   jws: z.string().regex(/^[A-Za-z0-9_-]+\.\.[A-Za-z0-9_-]+$/, "must be a detached compact JWS"),
 });
 
+export const identityAssuranceSchema = z.object({
+  identity: z.enum(["self-asserted", "authenticated", "registry-verified"]),
+  keyCustody: z.enum(["service", "principal"]),
+  method: z.string().min(1),
+  assertedBy: z.string().min(1),
+  assertedAt: isoDateTime,
+  reference: z
+    .object({
+      scheme: z.string().min(1),
+      value: z.string().min(1),
+    })
+    .optional(),
+});
+
 export const legalPersonSchema = z.object({
   kind: z.literal("legal_person"),
   id: z.string().min(1),
@@ -38,6 +52,7 @@ export const legalPersonSchema = z.object({
   legalEntity: z.string().min(1),
   identifier: z.string().min(1),
   keyId: z.string().min(1),
+  assurance: identityAssuranceSchema.optional(),
 });
 
 export const agentSchema = z.object({
@@ -220,6 +235,7 @@ export const evidencePackSchema = z.object({
 export type Money = z.infer<typeof moneySchema>;
 export type Proof = z.infer<typeof proofSchema>;
 export type LegalPerson = z.infer<typeof legalPersonSchema>;
+export type IdentityAssurance = z.infer<typeof identityAssuranceSchema>;
 export type Agent = z.infer<typeof agentSchema>;
 export type Party = z.infer<typeof partySchema>;
 export type Counterparties = z.infer<typeof counterpartiesSchema>;

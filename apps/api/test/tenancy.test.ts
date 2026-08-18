@@ -2,9 +2,12 @@ import { readFile } from "node:fs/promises";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import request from "supertest";
 import type { Express } from "express";
+import { verifyEvidencePack } from "@warrant/core";
+import type { EvidencePack } from "@warrant/core";
+import { trustRoots } from "@warrant/core/fixtures";
 import { createApp } from "../src/app.js";
 import { ORGANISATION_HEADER } from "../src/auth/tenancy.js";
-import { testIdentity } from "./support/identity.js";
+import { TEST_ISSUER, testIdentity } from "./support/identity.js";
 import type { TestIdentity } from "./support/identity.js";
 
 const inr = (major: number) => ({ currency: "INR" as const, minor: major * 100 });
@@ -353,5 +356,72 @@ describe("a member may record authority and may not change who else can", () => 
       .expect(403);
 
     expect(response.body.error).toBe("insufficient_role");
+  }, 30_000);
+});
+
+describe("the mandate records who authorised it, and how they were identified", () => {
+  it("derives the accountable human from the authenticated caller", async () => {
+    const meridian = await enrol("user_priya", "Meridian Technologies");
+    const root = await request(app)
+      .post("/v1/mandates")
+      .set(as(meridian))
+      .send(ROOT_MANDATE)
+      .expect(201);
+
+    const principal = root.body.liablePrincipal;
+    expect(principal.name).toBe("user_priya@example.test");
+    expect(principal.identifier).toBe("mailto:user_priya@example.test");
+    expect(principal.legalEntity).toBe("Meridian Technologies");
+    expect(principal.role).toBe("owner");
+    expect(principal.assurance).toEqual({
+      identity: "authenticated",
+      keyCustody: "service",
+      method: "OpenID Connect, email claim from the identity provider",
+      assertedBy: TEST_ISSUER,
+      assertedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/),
+    });
+  }, 30_000);
+
+  it("invents no company register reference it cannot support", async () => {
+    const meridian = await enrol("user_priya", "Meridian Technologies");
+    const root = await request(app)
+      .post("/v1/mandates")
+      .set(as(meridian))
+      .send(ROOT_MANDATE)
+      .expect(201);
+
+    expect(root.body.liablePrincipal.assurance.reference).toBeUndefined();
+    expect(JSON.stringify(root.body.liablePrincipal)).not.toMatch(/DIN|CIN|registry-verified/i);
+  }, 30_000);
+
+  it("tells a relying party, offline, that the service held the key and not the person", async () => {
+    const meridian = await enrol("user_priya", "Meridian Technologies");
+    const leaf = await delegate(meridian, await issueRoot(meridian));
+    const recorded = await request(app)
+      .post("/v1/actions")
+      .set(as(meridian))
+      .send(action(leaf, 100_000, "nonce-assurance-pack"))
+      .expect(201);
+
+    const stored = await request(app)
+      .get(`/v1/evidence/${recorded.body.packId}`)
+      .set(as(meridian))
+      .expect(200);
+
+    const report = await verifyEvidencePack(stored.body as EvidencePack, { trustRoots });
+    expect(report.result).toBe("VERIFIED");
+
+    const assurance = report.authority?.checks.find((check) => check.id === "principal.assurance");
+    expect(assurance?.status).toBe("warn");
+    expect(assurance?.detail).toMatch(/identity authenticated by OpenID Connect/);
+    expect(assurance?.detail).toMatch(/held by the service rather than by user_priya@example\.test/);
+  }, 30_000);
+
+  it("keeps the demonstration principal when nobody is logged in", async () => {
+    const open = createApp({ auth: { mode: "open" } });
+    const root = await request(open).post("/v1/mandates").send(ROOT_MANDATE).expect(201);
+
+    expect(root.body.liablePrincipal.name).toBe("Priya Sharma");
+    expect(root.body.liablePrincipal.assurance).toBeUndefined();
   }, 30_000);
 });

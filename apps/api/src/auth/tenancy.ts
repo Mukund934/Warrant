@@ -7,8 +7,9 @@ import type {
   Repositories,
   TenantScope,
 } from "../persistence/types.js";
-import { DEMONSTRATION_ACTOR } from "../services/issuance.js";
+import { DEMONSTRATION_ACTOR, accountablePerson } from "../services/issuance.js";
 import type { Actor } from "../services/issuance.js";
+import { nowIso } from "../warrant/context.js";
 
 export interface Tenant {
   accountId: string;
@@ -153,18 +154,32 @@ export function requireRole(minimum: MembershipRole): RequestHandler {
 }
 
 export async function actorFor(request: Request, repositories: Repositories): Promise<Actor> {
-  if (!request.tenant) return DEMONSTRATION_ACTOR;
+  const tenant = request.tenant;
+  const principal = request.principal;
+  if (!tenant || !principal) return DEMONSTRATION_ACTOR;
 
-  const organisation = await repositories.directory.findOrganisation(request.tenant.organisationId);
+  const organisation = await repositories.directory.findOrganisation(tenant.organisationId);
   if (!organisation) {
     throw new HttpError(
       404,
       "organisation_missing",
-      `membership names ${request.tenant.organisationId}, but no such organisation is recorded`,
+      `membership names ${tenant.organisationId}, but no such organisation is recorded`,
     );
   }
 
-  return { organisation, scope: organisation.id };
+  return {
+    organisation,
+    liablePrincipal: accountablePerson({
+      accountId: tenant.accountId,
+      issuer: principal.issuer,
+      subject: principal.subject,
+      ...(principal.email ? { email: principal.email } : {}),
+      role: tenant.role,
+      organisationName: organisation.name,
+      at: nowIso(),
+    }),
+    scope: organisation.id,
+  };
 }
 
 export function writesNeed(minimum: MembershipRole): RequestHandler {

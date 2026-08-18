@@ -1,5 +1,5 @@
 import { DelegationError, delegateMandate, digestOf, issueRootMandate } from "@warrant/core";
-import type { Mandate, Scope, ScopeDelta } from "@warrant/core";
+import type { LegalPerson, Mandate, Scope, ScopeDelta } from "@warrant/core";
 import { notFound, unprocessable } from "../http/errors.js";
 import type { Repositories, TenantScope } from "../persistence/types.js";
 import {
@@ -15,10 +15,48 @@ import {
 
 export interface Actor {
   organisation: Mandate["organisation"];
+  liablePrincipal: LegalPerson;
   scope: TenantScope;
 }
 
-export const DEMONSTRATION_ACTOR: Actor = { organisation, scope: null };
+export const DEMONSTRATION_ACTOR: Actor = {
+  organisation,
+  liablePrincipal: priyaSharma,
+  scope: null,
+};
+
+export interface AccountablePersonInput {
+  accountId: string;
+  issuer: string;
+  subject: string;
+  email?: string;
+  role: string;
+  organisationName: string;
+  at: string;
+}
+
+export function accountablePerson(input: AccountablePersonInput): LegalPerson {
+  const identified = Boolean(input.email);
+
+  return {
+    kind: "legal_person",
+    id: `person:${input.accountId}`,
+    name: input.email ?? input.subject,
+    role: input.role,
+    legalEntity: input.organisationName,
+    identifier: identified ? `mailto:${input.email}` : `oidc:${input.issuer}#${input.subject}`,
+    keyId: principalSigner.keyId,
+    assurance: {
+      identity: "authenticated",
+      keyCustody: "service",
+      method: identified
+        ? "OpenID Connect, email claim from the identity provider"
+        : "OpenID Connect, subject claim from the identity provider",
+      assertedBy: input.issuer,
+      assertedAt: input.at,
+    },
+  };
+}
 
 async function record(mandate: Mandate, repositories: Repositories): Promise<void> {
   await repositories.mandates.save(mandate);
@@ -48,7 +86,7 @@ export async function issueRoot(
       {
         id: identifier("mnd"),
         organisation: actor.organisation,
-        liablePrincipal: priyaSharma,
+        liablePrincipal: actor.liablePrincipal,
         subject: apAgent,
         scope: input.scope,
         maxDelegationDepth: input.maxDelegationDepth,

@@ -1,3 +1,4 @@
+import { digestOf } from "./canonical.js";
 import { narrows } from "./scope.js";
 import { effectiveScope } from "./scope.js";
 import { mandateDigest, unsignedPartOf } from "./mandate.js";
@@ -30,6 +31,45 @@ function fail(id: string, title: string, detail: string, expected?: string, obse
 
 export function findTrustRoot(trustRoots: TrustRoot[], keyId: string): TrustRoot | undefined {
   return trustRoots.find((root) => root.keyId === keyId);
+}
+
+const ASSURANCE_TITLE = "How the accountable human was identified is recorded";
+
+export function assuranceCheck(root: Mandate): Check {
+  const principal = root.liablePrincipal;
+  const assurance = principal.assurance;
+
+  if (!assurance) {
+    return {
+      id: "principal.assurance",
+      title: ASSURANCE_TITLE,
+      status: "skip",
+      detail: `this mandate records nothing about how ${principal.name} was identified, so ${principal.identifier} is a claim by the issuer and no more`,
+    };
+  }
+
+  const reference = assurance.reference
+    ? `${assurance.reference.scheme} ${assurance.reference.value}`
+    : "no external register was cited";
+  const established = `identity ${assurance.identity} by ${assurance.method}, asserted by ${assurance.assertedBy} at ${assurance.assertedAt}; ${reference}`;
+
+  if (assurance.keyCustody === "service") {
+    return {
+      id: "principal.assurance",
+      title: ASSURANCE_TITLE,
+      status: "warn",
+      detail: `${established}. The signing key is held by the service rather than by ${principal.name}, so this records who authorised the mandate, not who personally signed it.`,
+      expected: "a key held by the accountable person",
+      observed: `a service key, ${principal.keyId}`,
+    };
+  }
+
+  return {
+    id: "principal.assurance",
+    title: ASSURANCE_TITLE,
+    status: "pass",
+    detail: `${established}. The signing key is held by ${principal.name}.`,
+  };
 }
 
 export function keyLifecycleFault(root: TrustRoot, signedAt: string): string | undefined {
@@ -210,17 +250,27 @@ export async function validateChain(chain: Mandate[], context: ChainContext): Pr
     );
   }
 
-  const inconsistentPrincipal = chain.find(
-    (mandate) => mandate.liablePrincipal.id !== root.liablePrincipal.id,
-  );
+  const rootPrincipalDigest = await digestOf(root.liablePrincipal);
+  let inconsistentPrincipal: Mandate | undefined;
+  for (const mandate of chain) {
+    if ((await digestOf(mandate.liablePrincipal)) !== rootPrincipalDigest) {
+      inconsistentPrincipal = mandate;
+      break;
+    }
+  }
+
   if (inconsistentPrincipal) {
+    const differs =
+      inconsistentPrincipal.liablePrincipal.id === root.liablePrincipal.id
+        ? "restates the same person with different particulars"
+        : "names a different accountable person";
     checks.push(
       fail(
         "chain.liable_principal",
         "Accountability is not reassigned down the chain",
-        `mandate ${inconsistentPrincipal.id} names a different accountable person`,
-        root.liablePrincipal.id,
-        inconsistentPrincipal.liablePrincipal.id,
+        `mandate ${inconsistentPrincipal.id} ${differs}`,
+        rootPrincipalDigest,
+        await digestOf(inconsistentPrincipal.liablePrincipal),
       ),
     );
   } else {
@@ -228,10 +278,12 @@ export async function validateChain(chain: Mandate[], context: ChainContext): Pr
       pass(
         "chain.liable_principal",
         "Accountability is not reassigned down the chain",
-        `every hop remains answerable to ${root.liablePrincipal.name}`,
+        `every hop remains answerable to ${root.liablePrincipal.name}, on identical particulars`,
       ),
     );
   }
+
+  checks.push(assuranceCheck(root));
 
   let narrowingSound = true;
   for (let index = 1; index < chain.length; index += 1) {

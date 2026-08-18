@@ -312,15 +312,75 @@ describe("authentication answers who is asking, never what may be done", () => {
     );
   }, 30_000);
 
-  it("puts no trace of the authenticated caller into the signed decision", async () => {
+  it("puts nothing about the session into the signed evaluation inputs", async () => {
     const outcome = await decide(
       await mint({ subject: "user_priya" }),
       "nonce-auth-c",
       "Sundaram",
     );
-    const serialised = JSON.stringify(outcome.decision);
 
-    expect(serialised).not.toMatch(/user_priya|priya@meridian\.example|supabase/i);
+    expect(Object.keys(outcome.decision.inputs).sort()).toEqual([
+      "escalationThreshold",
+      "evaluatedAt",
+      "freshness",
+      "replayStatus",
+    ]);
+    expect(JSON.stringify(outcome.decision.inputs)).not.toMatch(/user_priya|supabase|Bearer|token/i);
+  }, 30_000);
+
+  it("names the human the mandate holds accountable, not whoever is calling", async () => {
+    const app = createApp({ auth: { mode: "required", verifier } });
+    const ownerToken = await mint({ subject: "user_priya" });
+    await enrol(app, ownerToken, "Meridian Technologies");
+
+    await request(app)
+      .post("/v1/organisations")
+      .set("authorization", `Bearer ${ownerToken}`)
+      .send({ name: "Meridian Technologies", jurisdiction: "IN-MH" })
+      .expect(422);
+
+    const organisations = await request(app)
+      .get("/v1/organisations")
+      .set("authorization", `Bearer ${ownerToken}`)
+      .expect(200);
+    const organisationId = organisations.body[0].id;
+
+    await request(app)
+      .post(`/v1/organisations/${organisationId}/members`)
+      .set("authorization", `Bearer ${ownerToken}`)
+      .send({ subject: "user_rahul", email: "rahul@meridian.example", role: "member" })
+      .expect(201);
+
+    const root = await request(app)
+      .post("/v1/mandates")
+      .set("authorization", `Bearer ${ownerToken}`)
+      .send(ROOT_MANDATE)
+      .expect(201);
+
+    const delegated = await request(app)
+      .post(`/v1/mandates/${root.body.id}/delegations`)
+      .set("authorization", `Bearer ${ownerToken}`)
+      .send({ scopeDelta: { actions: ["payment.execute"] } })
+      .expect(201);
+
+    const memberToken = await mint({ subject: "user_rahul" });
+    const action = await request(app)
+      .post("/v1/actions")
+      .set("authorization", `Bearer ${memberToken}`)
+      .send({
+        mandateId: delegated.body.id,
+        action: "payment.execute",
+        resource: "erp:meridian/accounts-payable",
+        counterparty: "Kalyani Steel Works",
+        description: "Invoice settlement by a colleague",
+        nonce: "nonce-auth-accountability",
+      })
+      .expect(201);
+
+    expect(action.body.verdict).toBe("ALLOW");
+    expect(action.body.decision.liablePrincipal.id).toBe(root.body.liablePrincipal.id);
+    expect(action.body.decision.liablePrincipal.name).toBe("priya@meridian.example");
+    expect(JSON.stringify(action.body.decision)).not.toMatch(/rahul/i);
   }, 30_000);
 });
 
