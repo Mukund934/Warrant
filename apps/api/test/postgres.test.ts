@@ -1,5 +1,6 @@
 ﻿import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import request from "supertest";
+import { exportJWK, generateKeyPair } from "jose";
 import { GENESIS_DIGEST, ledgerEntryDigest, verifyEvidencePack } from "@warrant/core";
 import type { EvidencePack, LedgerEntry, Mandate, Scope } from "@warrant/core";
 import { trustRoots } from "@warrant/core/fixtures";
@@ -602,5 +603,136 @@ withDatabase("an assurance block survives a jsonb round trip", () => {
 
     expect(issued.body.liablePrincipal.legalEntity).toBe(organisation.rows[0]?.name);
     expect(issued.body.organisation.name).toBe(organisation.rows[0]?.name);
+  }, 60_000);
+});
+
+withDatabase("the agent registry on real SQL", () => {
+  let identity: TestIdentity;
+  let owner = { token: "", organisationId: "" };
+
+  function boot() {
+    return createApp({
+      repositories: createPostgresRepositories(main.admin, 600),
+      auth: { mode: "required", verifier: identity.verifier },
+    });
+  }
+
+  const as = (who: { token: string }) => ({ authorization: `Bearer ${who.token}` });
+
+  async function publicJwk() {
+    const { publicKey } = await generateKeyPair("ES256", { extractable: true });
+    return exportJWK(publicKey);
+  }
+
+  beforeAll(async () => {
+    if (!databaseAvailable) return;
+    identity = await testIdentity();
+    const stamp = crypto.randomUUID().slice(0, 8);
+    const token = await identity.mint(`user_reg_${stamp}`, `reg_${stamp}@example.test`);
+    const created = await request(boot())
+      .post("/v1/organisations")
+      .set("authorization", `Bearer ${token}`)
+      .send({ name: `Registry ${stamp}`, jurisdiction: "IN-MH" })
+      .expect(201);
+    owner = { token, organisationId: created.body.id as string };
+  }, 120_000);
+
+  it("stores the agent, its key and its lifecycle entries", async () => {
+    const app = boot();
+    const registered = await request(app)
+      .post("/v1/agents")
+      .set(as(owner))
+      .send({ name: `Runner ${crypto.randomUUID().slice(0, 6)}`, runtime: "node/22", publicKeyJwk: await publicJwk() })
+      .expect(201);
+
+    const agentId = registered.body.id;
+    await request(app).post(`/v1/agents/${agentId}/status`).set(as(owner)).send({ status: "active" }).expect(200);
+
+    const stored = await main.admin.query<{ status: string; organisation_id: string }>(
+      "select status, organisation_id from agents where id = $1",
+      [agentId],
+    );
+    expect(stored.rows[0]?.status).toBe("active");
+    expect(stored.rows[0]?.organisation_id).toBe(owner.organisationId);
+
+    const keys = await main.admin.query("select key_id from agent_keys where agent_id = $1", [agentId]);
+    expect(keys.rows).toHaveLength(1);
+
+    const events = await main.admin.query<{ type: string }>(
+      "select type from ledger_entries where ref = $1 order by seq",
+      [agentId],
+    );
+    expect(events.rows.map((row) => row.type)).toEqual(["agent.registered", "agent.status_changed"]);
+  }, 60_000);
+
+  it("lets the database refuse a second current key for one agent", async () => {
+    const app = boot();
+    const registered = await request(app)
+      .post("/v1/agents")
+      .set(as(owner))
+      .send({ name: `Rotator ${crypto.randomUUID().slice(0, 6)}`, runtime: "node/22", publicKeyJwk: await publicJwk() })
+      .expect(201);
+
+    const agentId = registered.body.id;
+    const jwk = await publicJwk();
+
+    await expect(
+      main.admin.query(
+        `insert into agent_keys (key_id, agent_id, public_key_jwk, signing_from)
+         values ($1, $2, $3, now())`,
+        [`key:agent:duplicate_${crypto.randomUUID().slice(0, 8)}`, agentId, jwk],
+      ),
+    ).rejects.toThrow(/duplicate key|unique/i);
+  }, 60_000);
+
+  it("retires the old key and keeps it queryable after a rotation", async () => {
+    const app = boot();
+    const registered = await request(app)
+      .post("/v1/agents")
+      .set(as(owner))
+      .send({ name: `Rotate ${crypto.randomUUID().slice(0, 6)}`, runtime: "node/22", publicKeyJwk: await publicJwk() })
+      .expect(201);
+
+    const agentId = registered.body.id;
+    const before = await main.admin.query<{ key_id: string }>(
+      "select key_id from agent_keys where agent_id = $1",
+      [agentId],
+    );
+
+    await request(app)
+      .post(`/v1/agents/${agentId}/key-rotation`)
+      .set(as(owner))
+      .send({ publicKeyJwk: await publicJwk() })
+      .expect(201);
+
+    const after = await main.admin.query<{ key_id: string; signing_until: Date | null }>(
+      "select key_id, signing_until from agent_keys where agent_id = $1 order by signing_from",
+      [agentId],
+    );
+
+    expect(after.rows).toHaveLength(2);
+    expect(after.rows[0]?.key_id).toBe(before.rows[0]?.key_id);
+    expect(after.rows[0]?.signing_until).not.toBeNull();
+    expect(after.rows[1]?.signing_until).toBeNull();
+  }, 60_000);
+
+  it("will not record an agent against an organisation that does not exist", async () => {
+    await expect(
+      main.admin.query(
+        `insert into agents (id, organisation_id, name, runtime, status, registered_at, status_changed_at)
+         values ($1, $2, 'Orphan', 'node/22', 'registered', now(), now())`,
+        [`agt_orphan_${crypto.randomUUID().slice(0, 8)}`, "org:does-not-exist"],
+      ),
+    ).rejects.toThrow(/foreign key|violates/i);
+  }, 60_000);
+
+  it("will not record a lifecycle state the schema does not know", async () => {
+    await expect(
+      main.admin.query(
+        `insert into agents (id, organisation_id, name, runtime, status, registered_at, status_changed_at)
+         values ($1, $2, 'Bad state', 'node/22', 'retired', now(), now())`,
+        [`agt_badstate_${crypto.randomUUID().slice(0, 8)}`, owner.organisationId],
+      ),
+    ).rejects.toThrow(/check constraint|violates/i);
   }, 60_000);
 });
