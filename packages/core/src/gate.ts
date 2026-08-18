@@ -381,6 +381,36 @@ export async function assess(
     });
   }
 
+  const agentStatus = context.inputs.agentStatus;
+  const AGENT_STATUS_TITLE = "The acting agent was in good standing when it acted";
+  if (!agentStatus) {
+    checks.push({
+      id: "agent.status",
+      title: AGENT_STATUS_TITLE,
+      status: "skip",
+      detail:
+        "this decision recorded no registration state for the acting agent, so its standing was not enforced",
+    });
+  } else if (agentStatus === "active") {
+    checks.push(
+      pass(
+        "agent.status",
+        AGENT_STATUS_TITLE,
+        `${leaf.subject.name} was registered and active in its organisation at the moment of the action`,
+      ),
+    );
+  } else {
+    checks.push(
+      fail(
+        "agent.status",
+        AGENT_STATUS_TITLE,
+        `${leaf.subject.name} was ${agentStatus} in its organisation when this action was presented`,
+        "active",
+        agentStatus,
+      ),
+    );
+  }
+
   const failing = checks.filter((check) => check.status === "fail");
   if (failing.length > 0) {
     return {

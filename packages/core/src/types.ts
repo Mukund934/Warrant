@@ -131,9 +131,18 @@ export const freshnessPolicySchema = z.object({
   clockSkewSeconds: z.number().int().nonnegative(),
 });
 
+export const agentStatusSchema = z.enum([
+  "registered",
+  "active",
+  "suspended",
+  "revoked",
+  "archived",
+]);
+
 export const evaluationInputsSchema = z.object({
   evaluatedAt: isoDateTime,
   replayStatus: z.enum(["fresh", "replayed", "unchecked"]),
+  agentStatus: agentStatusSchema.optional(),
   freshness: freshnessPolicySchema.optional(),
   priorSpend: moneySchema.optional(),
   escalationThreshold: moneySchema.optional(),
@@ -158,7 +167,15 @@ export const decisionSchema = z.object({
 export const ledgerEntrySchema = z.object({
   seq: z.number().int().nonnegative(),
   prevDigest: z.string().min(1),
-  type: z.enum(["mandate.issued", "mandate.revoked", "action.requested", "decision.recorded"]),
+  type: z.enum([
+    "mandate.issued",
+    "mandate.revoked",
+    "action.requested",
+    "decision.recorded",
+    "agent.registered",
+    "agent.status_changed",
+    "agent.key_rotated",
+  ]),
   recordedAt: isoDateTime,
   ref: z.string().min(1),
   payloadDigest: digestString,
@@ -249,6 +266,7 @@ export type Check = z.infer<typeof checkSchema>;
 export type CheckStatus = Check["status"];
 export type FreshnessPolicy = z.infer<typeof freshnessPolicySchema>;
 export type EvaluationInputs = z.infer<typeof evaluationInputsSchema>;
+export type AgentStatus = z.infer<typeof agentStatusSchema>;
 export type Decision = z.infer<typeof decisionSchema>;
 export type Verdict = Decision["verdict"];
 export type LedgerEntry = z.infer<typeof ledgerEntrySchema>;
