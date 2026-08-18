@@ -2,14 +2,18 @@ import express from "express";
 import type { Express } from "express";
 import { assertCoherent, identify, requirePrincipal } from "./auth/middleware.js";
 import type { AuthOptions } from "./auth/middleware.js";
+import { requireTenant, resolveTenant, writesNeed } from "./auth/tenancy.js";
 import { errorHandler, notFoundHandler } from "./http/errors.js";
 import { rateLimit } from "./http/rate-limit.js";
 import { createInMemoryRepositories } from "./persistence/memory.js";
 import type { Repositories } from "./persistence/types.js";
 import { authorityRoutes } from "./routes/authority.js";
 import { catalogueRoutes } from "./routes/catalogue.js";
+import { directoryRoutes } from "./routes/directory.js";
 
-export const PROTECTED_PATHS = ["/v1/mandates", "/v1/actions", "/v1/checkpoint"];
+export const AUTHORITY_PATHS = ["/v1/mandates", "/v1/actions", "/v1/checkpoint"];
+export const DIRECTORY_PATHS = ["/v1/organisations"];
+export const PROTECTED_PATHS = [...AUTHORITY_PATHS, ...DIRECTORY_PATHS];
 
 export interface DatabaseProbe {
   probe(): Promise<boolean>;
@@ -39,7 +43,10 @@ export function createApp(options: AppOptions = {}): Express {
   app.use((_request, response, next) => {
     response.set("x-content-type-options", "nosniff");
     response.set("access-control-allow-origin", allowedOrigin);
-    response.set("access-control-allow-headers", "content-type,authorization");
+    response.set(
+      "access-control-allow-headers",
+      "content-type,authorization,x-warrant-organisation",
+    );
     response.set("access-control-allow-methods", "GET,POST,OPTIONS");
     next();
   });
@@ -64,9 +71,13 @@ export function createApp(options: AppOptions = {}): Express {
   });
 
   app.use("/v1", rateLimit({ windowMs: 60_000, max: 240 }));
-  app.use("/v1", identify(auth));
+  app.use("/v1", identify(auth), resolveTenant(repositories));
   app.use("/v1", catalogueRoutes(repositories));
-  app.use(PROTECTED_PATHS, requirePrincipal(auth));
+
+  app.use(DIRECTORY_PATHS, requirePrincipal(auth));
+  app.use(AUTHORITY_PATHS, requirePrincipal(auth), requireTenant(), writesNeed("member"));
+
+  app.use("/v1", directoryRoutes(repositories));
   app.use("/v1", authorityRoutes(repositories));
 
   app.use(notFoundHandler);

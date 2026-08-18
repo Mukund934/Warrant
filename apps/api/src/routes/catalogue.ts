@@ -3,6 +3,7 @@ import { verifyEvidencePack } from "@warrant/core";
 import type { TrustRoot } from "@warrant/core";
 import { demoScenarios } from "@warrant/core/fixtures";
 import { z } from "zod";
+import { scopeOf } from "../auth/tenancy.js";
 import { notFound } from "../http/errors.js";
 import { parseBody } from "../http/validate.js";
 import { trustRoots } from "../warrant/context.js";
@@ -51,7 +52,7 @@ export function catalogueRoutes(repositories: Repositories): Router {
   });
 
   router.get("/evidence/:id", async (request, response) => {
-    const stored = await repositories.evidence.findById(request.params.id);
+    const stored = await repositories.evidence.findById(request.params.id, scopeOf(request));
     if (stored) {
       response.json(stored);
       return;

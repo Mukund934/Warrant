@@ -189,6 +189,14 @@ const ROOT_MANDATE = {
   maxDelegationDepth: 1,
 };
 
+async function enrol(app: ReturnType<typeof createApp>, token: string, name: string) {
+  await request(app)
+    .post("/v1/organisations")
+    .set("authorization", `Bearer ${token}`)
+    .send({ name, jurisdiction: "IN-MH" })
+    .expect(201);
+}
+
 describe("the control plane behind the login wall", () => {
   const issue = (app: ReturnType<typeof createApp>, token?: string) => {
     const call = request(app).post("/v1/mandates").send(ROOT_MANDATE);
@@ -203,9 +211,19 @@ describe("the control plane behind the login wall", () => {
     expect(response.headers["www-authenticate"]).toMatch(/Bearer/);
   });
 
-  it("admits a caller who presents a valid token", async () => {
+  it("admits a caller who presents a valid token and belongs somewhere", async () => {
     const app = createApp({ auth: { mode: "required", verifier } });
-    await issue(app, await mint()).expect(201);
+    const token = await mint();
+
+    await enrol(app, token, "Meridian Technologies");
+    await issue(app, token).expect(201);
+  });
+
+  it("refuses an authenticated caller who belongs to no organisation", async () => {
+    const app = createApp({ auth: { mode: "required", verifier } });
+    const response = await issue(app, await mint()).expect(403);
+
+    expect(response.body.error).toBe("no_organisation");
   });
 
   it("refuses an expired token on a protected route", async () => {
@@ -249,9 +267,11 @@ describe("the control plane behind the login wall", () => {
 });
 
 describe("authentication answers who is asking, never what may be done", () => {
-  async function decide(token: string, nonce: string) {
+  async function decide(token: string, nonce: string, organisation: string) {
     const app = createApp({ auth: { mode: "required", verifier } });
     const bearer = `Bearer ${token}`;
+
+    await enrol(app, token, organisation);
 
     const root = await request(app)
       .post("/v1/mandates")
@@ -283,8 +303,8 @@ describe("authentication answers who is asking, never what may be done", () => {
   }
 
   it("reaches the same verdict whoever is logged in", async () => {
-    const first = await decide(await mint({ subject: "user_priya" }), "nonce-auth-a");
-    const second = await decide(await mint({ subject: "user_rahul" }), "nonce-auth-b");
+    const first = await decide(await mint({ subject: "user_priya" }), "nonce-auth-a", "Meridian");
+    const second = await decide(await mint({ subject: "user_rahul" }), "nonce-auth-b", "Kalyani");
 
     expect(first.verdict).toBe(second.verdict);
     expect(first.decision.checks.map((check: { id: string }) => check.id)).toEqual(
@@ -293,7 +313,11 @@ describe("authentication answers who is asking, never what may be done", () => {
   }, 30_000);
 
   it("puts no trace of the authenticated caller into the signed decision", async () => {
-    const outcome = await decide(await mint({ subject: "user_priya" }), "nonce-auth-c");
+    const outcome = await decide(
+      await mint({ subject: "user_priya" }),
+      "nonce-auth-c",
+      "Sundaram",
+    );
     const serialised = JSON.stringify(outcome.decision);
 
     expect(serialised).not.toMatch(/user_priya|priya@meridian\.example|supabase/i);

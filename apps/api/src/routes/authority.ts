@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { moneySchema, scopeSchema } from "@warrant/core";
+import { actorFor, scopeOf } from "../auth/tenancy.js";
 import { notFound } from "../http/errors.js";
 import { parseBody } from "../http/validate.js";
 import type { Repositories } from "../persistence/types.js";
@@ -43,32 +44,36 @@ export function authorityRoutes(repositories: Repositories): Router {
 
   router.post("/mandates", async (request, response) => {
     const body = parseBody(issueSchema, request.body);
-    const mandate = await issueRoot(body, repositories);
+    const mandate = await issueRoot(body, repositories, await actorFor(request, repositories));
     response.status(201).json(mandate);
   });
 
   router.get("/mandates/:id", async (request, response) => {
-    const mandate = await repositories.mandates.findById(request.params.id);
+    const scope = scopeOf(request);
+    const mandate = await repositories.mandates.findById(request.params.id, scope);
     if (!mandate) throw notFound(`no mandate with id ${request.params.id}`);
-    const chain = await repositories.mandates.findChain(mandate.id);
+    const chain = await repositories.mandates.findChain(mandate.id, scope);
     response.json({ mandate, chain });
   });
 
   router.post("/mandates/:id/delegations", async (request, response) => {
     const body = parseBody(delegateSchema, request.body);
-    const mandate = await delegate(request.params.id, body, repositories);
+    const actor = await actorFor(request, repositories);
+    const mandate = await delegate(request.params.id, body, repositories, actor);
     response.status(201).json(mandate);
   });
 
   router.post("/mandates/:id/revocation", async (request, response) => {
     const body = parseBody(revokeSchema, request.body);
-    await revoke(request.params.id, body.reason, repositories);
+    const actor = await actorFor(request, repositories);
+    await revoke(request.params.id, body.reason, repositories, actor);
     response.status(204).end();
   });
 
   router.post("/actions", async (request, response) => {
     const body = parseBody(actionSchema, request.body);
-    const outcome = await submitAction(body, repositories);
+    const actor = await actorFor(request, repositories);
+    const outcome = await submitAction(body, repositories, actor);
     response.status(201).json({
       verdict: outcome.decision.verdict,
       reason: outcome.decision.reason,

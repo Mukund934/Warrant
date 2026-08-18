@@ -1,10 +1,9 @@
 import { DelegationError, delegateMandate, digestOf, issueRootMandate } from "@warrant/core";
 import type { Mandate, Scope, ScopeDelta } from "@warrant/core";
 import { notFound, unprocessable } from "../http/errors.js";
-import type { Repositories } from "../persistence/types.js";
+import type { Repositories, TenantScope } from "../persistence/types.js";
 import {
   apAgent,
-  apAgentSigner,
   identifier,
   nowIso,
   organisation,
@@ -13,6 +12,13 @@ import {
   priyaSharma,
   signerForKeyId,
 } from "../warrant/context.js";
+
+export interface Actor {
+  organisation: Mandate["organisation"];
+  scope: TenantScope;
+}
+
+export const DEMONSTRATION_ACTOR: Actor = { organisation, scope: null };
 
 async function record(mandate: Mandate, repositories: Repositories): Promise<void> {
   await repositories.mandates.save(mandate);
@@ -34,13 +40,14 @@ export interface IssueRootInput {
 export async function issueRoot(
   input: IssueRootInput,
   repositories: Repositories,
+  actor: Actor = DEMONSTRATION_ACTOR,
 ): Promise<Mandate> {
   let mandate: Mandate;
   try {
     mandate = await issueRootMandate(
       {
         id: identifier("mnd"),
-        organisation,
+        organisation: actor.organisation,
         liablePrincipal: priyaSharma,
         subject: apAgent,
         scope: input.scope,
@@ -69,8 +76,9 @@ export async function delegate(
   parentId: string,
   input: DelegateInput,
   repositories: Repositories,
+  actor: Actor = DEMONSTRATION_ACTOR,
 ): Promise<Mandate> {
-  const parent = await repositories.mandates.findById(parentId);
+  const parent = await repositories.mandates.findById(parentId, actor.scope);
   if (!parent) throw notFound(`no mandate with id ${parentId}`);
 
   const signer = signerForKeyId(parent.subject.keyId);
@@ -114,12 +122,13 @@ export async function revoke(
   mandateId: string,
   reason: string,
   repositories: Repositories,
+  actor: Actor = DEMONSTRATION_ACTOR,
 ): Promise<void> {
-  const mandate = await repositories.mandates.findById(mandateId);
+  const mandate = await repositories.mandates.findById(mandateId, actor.scope);
   if (!mandate) throw notFound(`no mandate with id ${mandateId}`);
 
   const revokedAt = nowIso();
-  const applied = await repositories.mandates.revoke({ mandateId, revokedAt, reason });
+  const applied = await repositories.mandates.revoke({ mandateId, revokedAt, reason }, actor.scope);
   if (!applied) {
     throw unprocessable("already_revoked", `mandate ${mandateId} was already withdrawn`);
   }

@@ -4,7 +4,7 @@ import { PROTECTED_PATHS } from "../src/app.js";
 
 const specText = await readFile(new URL("../openapi.yaml", import.meta.url), "utf8");
 
-const declaredPaths = [...specText.matchAll(/^ {2}(\/[a-z{}/-]*):$/gm)]
+const declaredPaths = [...specText.matchAll(/^ {2}(\/[A-Za-z{}/-]*):$/gm)]
   .map((match) => match[1]!)
   .filter((path) => path !== "/v1");
 

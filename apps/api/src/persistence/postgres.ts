@@ -3,13 +3,20 @@ import type { Pool } from "pg";
 import { GENESIS_DIGEST, WarrantError, ledgerEntryDigest } from "@warrant/core";
 import type { EvidencePack, LedgerEntry, Mandate } from "@warrant/core";
 import type {
+  Account,
+  DirectoryRepository,
   EvidenceRepository,
   LedgerRepository,
   MandateRepository,
+  MemberSummary,
+  Membership,
+  MembershipRole,
   NonceStore,
+  Organisation,
   ReplayScope,
   Repositories,
   RevocationRecord,
+  TenantScope,
 } from "./types.js";
 
 export interface PostgresOptions {
@@ -216,26 +223,28 @@ export class PostgresMandateRepository implements MandateRepository {
     );
   }
 
-  async findById(id: string): Promise<Mandate | undefined> {
+  async findById(id: string, scope: TenantScope): Promise<Mandate | undefined> {
     const rows = await this.pool.query<{ document: Mandate }>(
-      "select document from mandates where id = $1",
-      [id],
+      `select document from mandates
+       where id = $1 and ($2::text is null or organisation_id = $2)`,
+      [id, scope],
     );
     return rows.rows[0]?.document;
   }
 
-  async findChain(leafId: string): Promise<Mandate[] | undefined> {
+  async findChain(leafId: string, scope: TenantScope): Promise<Mandate[] | undefined> {
     const rows = await this.pool.query<{ document: Mandate; parent_id: string | null }>(
       `with recursive lineage as (
-         select id, parent_id, document, 1 as hops from mandates where id = $1
+         select id, parent_id, document, 1 as hops from mandates
+         where id = $1 and ($3::text is null or organisation_id = $3)
          union all
          select above.id, above.parent_id, above.document, lineage.hops + 1
          from mandates above
          join lineage on above.id = lineage.parent_id
-         where lineage.hops <= $2
+         where lineage.hops <= $2 and ($3::text is null or above.organisation_id = $3)
        )
        select document, parent_id from lineage order by hops desc`,
-      [leafId, MAX_CHAIN_DEPTH],
+      [leafId, MAX_CHAIN_DEPTH, scope],
     );
 
     const chain = rows.rows;
@@ -245,24 +254,25 @@ export class PostgresMandateRepository implements MandateRepository {
     return chain.map((row) => row.document);
   }
 
-  async revoke(record: RevocationRecord): Promise<boolean> {
+  async revoke(record: RevocationRecord, scope: TenantScope): Promise<boolean> {
     const withdrawn = await this.pool.query(
       `update mandates set revoked_at = $2, revocation_reason = $3
-       where id = $1 and revoked_at is null`,
-      [record.mandateId, record.revokedAt, record.reason],
+       where id = $1 and revoked_at is null and ($4::text is null or organisation_id = $4)`,
+      [record.mandateId, record.revokedAt, record.reason, scope],
     );
     return withdrawn.rowCount === 1;
   }
 
-  async revocations(): Promise<RevocationRecord[]> {
+  async revocations(scope: TenantScope): Promise<RevocationRecord[]> {
     const rows = await this.pool.query<{
       id: string;
       revoked_at: Date;
       revocation_reason: string;
     }>(
       `select id, revoked_at, revocation_reason from mandates
-       where revoked_at is not null
+       where revoked_at is not null and ($1::text is null or organisation_id = $1)
        order by revoked_at, id`,
+      [scope],
     );
 
     return rows.rows.map((row) => ({
@@ -276,18 +286,19 @@ export class PostgresMandateRepository implements MandateRepository {
 export class PostgresEvidenceRepository implements EvidenceRepository {
   constructor(private readonly pool: Pool) {}
 
-  async save(pack: EvidencePack): Promise<void> {
+  async save(pack: EvidencePack, organisationId: string): Promise<void> {
     const amount = pack.request.amount;
     await this.pool.query(
       `insert into evidence_packs (
-         pack_id, root_mandate_id, verdict, evaluated_at, generated_at,
+         pack_id, root_mandate_id, organisation_id, verdict, evaluated_at, generated_at,
          amount_currency, amount_minor, document
        )
-       values ($1, $2, $3, $4, $5, $6, $7, $8)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        on conflict (pack_id) do nothing`,
       [
         pack.packId,
         pack.authority.chain[0]!.id,
+        organisationId,
         pack.decision.verdict,
         pack.decision.evaluatedAt,
         pack.generatedAt,
@@ -298,20 +309,22 @@ export class PostgresEvidenceRepository implements EvidenceRepository {
     );
   }
 
-  async findById(packId: string): Promise<EvidencePack | undefined> {
+  async findById(packId: string, scope: TenantScope): Promise<EvidencePack | undefined> {
     const rows = await this.pool.query<{ document: EvidencePack }>(
-      "select document from evidence_packs where pack_id = $1",
-      [packId],
+      `select document from evidence_packs
+       where pack_id = $1 and ($2::text is null or organisation_id = $2)`,
+      [packId, scope],
     );
     return rows.rows[0]?.document;
   }
 
-  async recent(limit: number): Promise<EvidencePack[]> {
+  async recent(limit: number, scope: TenantScope): Promise<EvidencePack[]> {
     const rows = await this.pool.query<{ document: EvidencePack }>(
       `select document from evidence_packs
+       where ($2::text is null or organisation_id = $2)
        order by evaluated_at desc, created_at desc, pack_id desc
        limit $1`,
-      [limit],
+      [limit, scope],
     );
     return rows.rows.map((row) => row.document);
   }
@@ -326,11 +339,112 @@ export async function pingDatabase(pool: Pool): Promise<boolean> {
   }
 }
 
+export class PostgresDirectoryRepository implements DirectoryRepository {
+  constructor(private readonly pool: Pool) {}
+
+  async createOrganisation(organisation: Organisation): Promise<boolean> {
+    const created = await this.pool.query(
+      `insert into organisations (id, name, jurisdiction) values ($1, $2, $3)
+       on conflict (id) do nothing`,
+      [organisation.id, organisation.name, organisation.jurisdiction],
+    );
+    return created.rowCount === 1;
+  }
+
+  async findOrganisation(id: string): Promise<Organisation | undefined> {
+    const rows = await this.pool.query<Organisation>(
+      "select id, name, jurisdiction from organisations where id = $1",
+      [id],
+    );
+    return rows.rows[0];
+  }
+
+  async rememberAccount(account: Account): Promise<Account> {
+    const rows = await this.pool.query<{
+      id: string;
+      issuer: string;
+      subject: string;
+      email: string | null;
+    }>(
+      `insert into accounts (id, issuer, subject, email) values ($1, $2, $3, $4)
+       on conflict (issuer, subject) do update set email = coalesce(excluded.email, accounts.email)
+       returning id, issuer, subject, email`,
+      [account.id, account.issuer, account.subject, account.email ?? null],
+    );
+    const row = rows.rows[0]!;
+    return {
+      id: row.id,
+      issuer: row.issuer,
+      subject: row.subject,
+      ...(row.email ? { email: row.email } : {}),
+    };
+  }
+
+  async grant(membership: Membership): Promise<void> {
+    await this.pool.query(
+      `insert into memberships (organisation_id, account_id, role) values ($1, $2, $3)
+       on conflict (organisation_id, account_id) do update set role = excluded.role`,
+      [membership.organisationId, membership.accountId, membership.role],
+    );
+  }
+
+  async withdraw(organisationId: string, accountId: string): Promise<boolean> {
+    const removed = await this.pool.query(
+      "delete from memberships where organisation_id = $1 and account_id = $2",
+      [organisationId, accountId],
+    );
+    return removed.rowCount === 1;
+  }
+
+  async membership(organisationId: string, accountId: string): Promise<Membership | undefined> {
+    const rows = await this.pool.query<{ role: MembershipRole }>(
+      "select role from memberships where organisation_id = $1 and account_id = $2",
+      [organisationId, accountId],
+    );
+    const row = rows.rows[0];
+    return row ? { organisationId, accountId, role: row.role } : undefined;
+  }
+
+  async membershipsFor(accountId: string): Promise<Membership[]> {
+    const rows = await this.pool.query<{ organisation_id: string; role: MembershipRole }>(
+      `select organisation_id, role from memberships
+       where account_id = $1 order by granted_at, organisation_id`,
+      [accountId],
+    );
+    return rows.rows.map((row) => ({
+      organisationId: row.organisation_id,
+      accountId,
+      role: row.role,
+    }));
+  }
+
+  async members(organisationId: string): Promise<MemberSummary[]> {
+    const rows = await this.pool.query<{
+      account_id: string;
+      role: MembershipRole;
+      email: string | null;
+    }>(
+      `select memberships.account_id, memberships.role, accounts.email
+       from memberships join accounts on accounts.id = memberships.account_id
+       where memberships.organisation_id = $1
+       order by memberships.granted_at, memberships.account_id`,
+      [organisationId],
+    );
+    return rows.rows.map((row) => ({
+      organisationId,
+      accountId: row.account_id,
+      role: row.role,
+      ...(row.email ? { email: row.email } : {}),
+    }));
+  }
+}
+
 export function createPostgresRepositories(pool: Pool, retentionSeconds: number): Repositories {
   return {
     mandates: new PostgresMandateRepository(pool),
     evidence: new PostgresEvidenceRepository(pool),
     ledger: new PostgresLedgerRepository(pool),
     nonces: new PostgresNonceStore(pool, retentionSeconds),
+    directory: new PostgresDirectoryRepository(pool),
   };
 }

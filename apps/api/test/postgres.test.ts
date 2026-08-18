@@ -11,6 +11,8 @@ import {
   pingDatabase,
 } from "../src/persistence/postgres.js";
 import { deploymentScopedNonceStore } from "./support/nonce-contract.js";
+import { testIdentity } from "./support/identity.js";
+import type { TestIdentity } from "./support/identity.js";
 import { TestSchema, databaseAvailable } from "./support/database.js";
 
 const withDatabase = databaseAvailable ? describe : describe.skip;
@@ -281,7 +283,7 @@ withDatabase("the whole API on top of PostgreSQL", () => {
   }, 60_000);
 
   it("hands back the revocation timestamp exactly as it was written", async () => {
-    const [withdrawn] = await createPostgresRepositories(main.admin, 600).mandates.revocations();
+    const [withdrawn] = await createPostgresRepositories(main.admin, 600).mandates.revocations(null);
 
     expect(withdrawn?.mandateId).toBe(leafId);
     expect(withdrawn?.revokedAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
@@ -290,15 +292,15 @@ withDatabase("the whole API on top of PostgreSQL", () => {
   it("resolves nothing for records that were never written", async () => {
     const repositories = createPostgresRepositories(main.admin, 600);
 
-    expect(await repositories.mandates.findChain("mnd_never_existed")).toBeUndefined();
-    expect(await repositories.mandates.findById("mnd_never_existed")).toBeUndefined();
-    expect(await repositories.evidence.findById("pack_never_existed")).toBeUndefined();
+    expect(await repositories.mandates.findChain("mnd_never_existed", null)).toBeUndefined();
+    expect(await repositories.mandates.findById("mnd_never_existed", null)).toBeUndefined();
+    expect(await repositories.evidence.findById("pack_never_existed", null)).toBeUndefined();
     expect(
       await repositories.mandates.revoke({
         mandateId: "mnd_never_existed",
         revokedAt: "2026-08-20T14:00:00Z",
         reason: "nothing to withdraw",
-      }),
+      }, null),
     ).toBe(false);
   });
 });
@@ -372,5 +374,122 @@ withDatabase("the database refuses to rewrite a recorded ledger", () => {
 
     expect(role.rows[0]?.rolcanlogin).toBe(false);
     expect(connected.rows[0]?.user).not.toBe("warrant_api");
+  }, 60_000);
+});
+
+withDatabase("tenant isolation, enforced by the database rather than by the caller", () => {
+  let identity: TestIdentity;
+  let meridian = { token: "", organisationId: "" };
+  let kalyani = { token: "", organisationId: "" };
+  let theirMandate = "";
+  let theirPack = "";
+
+  function boot() {
+    return createApp({
+      repositories: createPostgresRepositories(main.admin, 600),
+      auth: { mode: "required", verifier: identity.verifier },
+    });
+  }
+
+  const as = (member: { token: string }) => ({ authorization: `Bearer ${member.token}` });
+
+  async function enrol(subject: string, name: string) {
+    const token = await identity.mint(subject, `${subject}@example.test`);
+    const created = await request(boot())
+      .post("/v1/organisations")
+      .set("authorization", `Bearer ${token}`)
+      .send({ name, jurisdiction: "IN-MH" })
+      .expect(201);
+    return { token, organisationId: created.body.id as string };
+  }
+
+  beforeAll(async () => {
+    if (!databaseAvailable) return;
+    identity = await testIdentity();
+    const stamp = crypto.randomUUID().slice(0, 8);
+    meridian = await enrol(`user_priya_${stamp}`, `Meridian ${stamp}`);
+    kalyani = await enrol(`user_rahul_${stamp}`, `Kalyani ${stamp}`);
+
+    const app = boot();
+    const root = await request(app)
+      .post("/v1/mandates")
+      .set(as(kalyani))
+      .send({ scope: rootScope, ...validity, maxDelegationDepth: 2 })
+      .expect(201);
+    theirMandate = root.body.id;
+
+    const leaf = await request(app)
+      .post(`/v1/mandates/${theirMandate}/delegations`)
+      .set(as(kalyani))
+      .send({ scopeDelta: { actions: ["payment.execute"], limits: { perAction: inr(500_000) } } })
+      .expect(201);
+
+    const recorded = await request(app)
+      .post("/v1/actions")
+      .set(as(kalyani))
+      .send({
+        mandateId: leaf.body.id,
+        action: "payment.execute",
+        resource: "erp:meridian/accounts-payable",
+        counterparty: KALYANI,
+        description: "Invoice inside Kalyani",
+        nonce: `nonce_${crypto.randomUUID()}`,
+        amount: inr(100_000),
+      })
+      .expect(201);
+    theirPack = recorded.body.packId;
+  }, 120_000);
+
+  it("returns no row for a mandate belonging to another organisation", async () => {
+    const repositories = createPostgresRepositories(main.admin, 600);
+
+    expect(await repositories.mandates.findById(theirMandate, kalyani.organisationId)).toBeDefined();
+    expect(
+      await repositories.mandates.findById(theirMandate, meridian.organisationId),
+    ).toBeUndefined();
+    expect(
+      await repositories.mandates.findChain(theirMandate, meridian.organisationId),
+    ).toBeUndefined();
+  }, 60_000);
+
+  it("returns no row for evidence belonging to another organisation", async () => {
+    const repositories = createPostgresRepositories(main.admin, 600);
+
+    expect(await repositories.evidence.findById(theirPack, kalyani.organisationId)).toBeDefined();
+    expect(
+      await repositories.evidence.findById(theirPack, meridian.organisationId),
+    ).toBeUndefined();
+    expect(await repositories.evidence.recent(50, meridian.organisationId)).toEqual([]);
+  }, 60_000);
+
+  it("refuses a revocation aimed at another organisation's mandate", async () => {
+    const repositories = createPostgresRepositories(main.admin, 600);
+
+    const applied = await repositories.mandates.revoke(
+      { mandateId: theirMandate, revokedAt: "2026-08-20T14:00:00Z", reason: "not mine" },
+      meridian.organisationId,
+    );
+    expect(applied).toBe(false);
+  }, 60_000);
+
+  it("refuses the whole request through the API, not merely at the repository", async () => {
+    const app = boot();
+
+    await request(app).get(`/v1/mandates/${theirMandate}`).set(as(kalyani)).expect(200);
+    await request(app).get(`/v1/mandates/${theirMandate}`).set(as(meridian)).expect(404);
+    await request(app).get(`/v1/evidence/${theirPack}`).set(as(meridian)).expect(404);
+    await request(app).get(`/v1/evidence/${theirPack}`).set(as(kalyani)).expect(200);
+  }, 60_000);
+
+  it("will not record a mandate against an organisation that does not exist", async () => {
+    await expect(
+      main.admin.query(
+        `insert into mandates (id, parent_id, depth, organisation_id, liable_principal_id,
+           subject_id, issuer_key_id, not_before, expires_at, issued_at, document)
+         values ($1, null, 0, $2, 'person:x', 'agent:y', 'key:z',
+           now(), now() + interval '1 day', now(), '{}'::jsonb)`,
+        [`mnd_orphan_${crypto.randomUUID().slice(0, 8)}`, "org:does-not-exist"],
+      ),
+    ).rejects.toThrow(/foreign key|violates/i);
   }, 60_000);
 });

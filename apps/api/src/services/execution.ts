@@ -17,7 +17,9 @@ import type {
   SignedHead,
 } from "@warrant/core";
 import { notFound, unprocessable } from "../http/errors.js";
-import type { Repositories } from "../persistence/types.js";
+import type { Repositories, TenantScope } from "../persistence/types.js";
+import { DEMONSTRATION_ACTOR } from "./issuance.js";
+import type { Actor } from "./issuance.js";
 import {
   ESCALATION_THRESHOLD,
   gate,
@@ -45,8 +47,11 @@ export interface SubmitActionResult {
   pack: EvidencePack;
 }
 
-async function revocationSnapshot(repositories: Repositories): Promise<RevocationSnapshot> {
-  const body = { asOf: nowIso(), revoked: await repositories.mandates.revocations() };
+async function revocationSnapshot(
+  repositories: Repositories,
+  scope: TenantScope,
+): Promise<RevocationSnapshot> {
+  const body = { asOf: nowIso(), revoked: await repositories.mandates.revocations(scope) };
   return { ...body, proof: await signDetached(body, recorder, body.asOf) };
 }
 
@@ -56,9 +61,10 @@ async function priorSpendFor(
   windowDays: number,
   at: string,
   repositories: Repositories,
+  scope: TenantScope,
 ): Promise<Money | undefined> {
   const since = new Date(at).getTime() - windowDays * 24 * 60 * 60 * 1000;
-  const packs = await repositories.evidence.recent(500);
+  const packs = await repositories.evidence.recent(500, scope);
 
   let total = 0;
   for (const pack of packs) {
@@ -101,8 +107,9 @@ export async function takeCheckpoint(repositories: Repositories): Promise<Checkp
 export async function submitAction(
   input: SubmitActionInput,
   repositories: Repositories,
+  actor: Actor = DEMONSTRATION_ACTOR,
 ): Promise<SubmitActionResult> {
-  const chain = await repositories.mandates.findChain(input.mandateId);
+  const chain = await repositories.mandates.findChain(input.mandateId, actor.scope);
   if (!chain || chain.length === 0) {
     throw notFound(`no mandate chain could be resolved for ${input.mandateId}`);
   }
@@ -133,7 +140,7 @@ export async function submitAction(
   );
 
   const fresh = await repositories.nonces.claim(input.nonce);
-  const revocation = await revocationSnapshot(repositories);
+  const revocation = await revocationSnapshot(repositories, actor.scope);
 
   const perPeriod = leaf.scope.limits.perPeriod;
   const priorSpend = perPeriod
@@ -143,6 +150,7 @@ export async function submitAction(
         perPeriod.days,
         evaluatedAt,
         repositories,
+        actor.scope,
       )
     : undefined;
 
@@ -194,6 +202,6 @@ export async function submitAction(
     recorder,
   );
 
-  await repositories.evidence.save(pack);
+  await repositories.evidence.save(pack, chain[0]!.organisation.id);
   return { decision, pack };
 }
