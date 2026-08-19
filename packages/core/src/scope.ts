@@ -43,6 +43,7 @@ export function resolveDelta(delta: ScopeDelta, parent: Scope): Scope {
       perAction: limits.perAction ?? parent.limits.perAction,
       perPeriod: limits.perPeriod ?? parent.limits.perPeriod,
     },
+    approval: delta.approval ?? parent.approval,
     purpose: delta.purpose ?? parent.purpose,
   };
 }
@@ -89,6 +90,35 @@ export function narrows(child: Scope, parent: Scope): ScopeViolation[] {
           childValue: extra.join(", "),
         });
       }
+    }
+  }
+
+  const parentApproval = parent.approval;
+  const childApproval = child.approval;
+  if (parentApproval) {
+    if (!childApproval) {
+      violations.push({
+        code: "scope/approval_removed",
+        message:
+          "the delegated mandate removes an approval requirement the issuing mandate imposes; approval may be demanded more often down a chain, never less",
+        parentValue: `approval above ${formatMoney(parentApproval.above)}`,
+        childValue: "no approval required",
+      });
+    } else if (childApproval.above.currency !== parentApproval.above.currency) {
+      violations.push({
+        code: "scope/approval_currency_changed",
+        message: "the delegated mandate states its approval threshold in a different currency",
+        parentValue: parentApproval.above.currency,
+        childValue: childApproval.above.currency,
+      });
+    } else if (childApproval.above.minor > parentApproval.above.minor) {
+      violations.push({
+        code: "scope/approval_weakened",
+        message:
+          "the delegated mandate would let more pass without approval than the mandate it derives from",
+        parentValue: `approval above ${formatMoney(parentApproval.above)}`,
+        childValue: `approval above ${formatMoney(childApproval.above)}`,
+      });
     }
   }
 
@@ -204,6 +234,14 @@ function meetPeriod(
   return aIsTighter ? a : b;
 }
 
+function meetApproval(
+  a: Scope["approval"],
+  b: Scope["approval"],
+): { approval?: Scope["approval"] } {
+  const tighter = meetMoney(a?.above, b?.above);
+  return tighter ? { approval: { above: tighter } } : {};
+}
+
 export function meet(a: Scope, b: Scope): Scope {
   return {
     actions: a.actions.filter((action) => b.actions.includes(action)),
@@ -213,6 +251,7 @@ export function meet(a: Scope, b: Scope): Scope {
       perAction: meetMoney(a.limits.perAction, b.limits.perAction),
       perPeriod: meetPeriod(a.limits.perPeriod, b.limits.perPeriod),
     },
+    ...meetApproval(a.approval, b.approval),
     purpose: a.purpose ?? b.purpose,
   };
 }

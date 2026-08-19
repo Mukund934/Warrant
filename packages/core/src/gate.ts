@@ -421,27 +421,39 @@ export async function assess(
     };
   }
 
-  const threshold = context.inputs.escalationThreshold;
-  if (
-    threshold &&
-    request.amount &&
-    request.amount.currency === threshold.currency &&
-    request.amount.minor > threshold.minor
-  ) {
+  const carried = scope.approval?.above;
+  const configured = context.inputs.escalationThreshold;
+  const applicable = [
+    ...(carried ? [{ source: "authority" as const, amount: carried }] : []),
+    ...(configured ? [{ source: "deployment" as const, amount: configured }] : []),
+  ].filter((candidate) => candidate.amount.currency === request.amount?.currency);
+
+  const binding = applicable.reduce<(typeof applicable)[number] | undefined>(
+    (tightest, candidate) =>
+      !tightest || candidate.amount.minor < tightest.amount.minor ? candidate : tightest,
+    undefined,
+  );
+
+  if (binding && request.amount && request.amount.minor > binding.amount.minor) {
+    const origin =
+      binding.source === "authority"
+        ? `the authority itself carries that requirement, so a reader of this chain reaches the same conclusion without knowing how this service is configured`
+        : `this deployment applies that threshold; it is not carried in the authority`;
+
     checks.push({
       id: "policy.escalation",
       title: "Human approval is required above the escalation threshold",
       status: "warn",
       detail: `${formatMoney(request.amount)} is above the ${formatMoney(
-        threshold,
-      )} threshold at which ${leaf.liablePrincipal.name} requires a human approval`,
-      expected: `at most ${formatMoney(threshold)} without approval`,
+        binding.amount,
+      )} threshold at which ${leaf.liablePrincipal.name} requires a human approval. ${origin}`,
+      expected: `at most ${formatMoney(binding.amount)} without approval`,
       observed: formatMoney(request.amount),
     });
     return {
       verdict: "ESCALATE",
       reason: `authority is sufficient, but ${formatMoney(request.amount)} exceeds the ${formatMoney(
-        threshold,
+        binding.amount,
       )} threshold at which a human must approve`,
       checks,
       effectiveScope: scope,

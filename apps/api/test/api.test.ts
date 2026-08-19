@@ -358,3 +358,86 @@ describe("actions through the gate", () => {
       .expect(404);
   });
 });
+
+describe("an approval requirement travels with the authority", () => {
+  it("is carried through issuance, delegation, the decision and the pack", async () => {
+    const root = (
+      await request(app)
+        .post("/v1/mandates")
+        .send({
+          scope: { ...rootScope, approval: { above: inr(200_000) } },
+          ...window,
+          maxDelegationDepth: 2,
+        })
+        .expect(201)
+    ).body as Mandate;
+
+    expect(root.scope.approval).toEqual({ above: inr(200_000) });
+
+    const delegated = (
+      await request(app)
+        .post(`/v1/mandates/${root.id}/delegations`)
+        .send({
+          scopeDelta: {
+            actions: ["payment.execute"],
+            counterparties: { allow: [KALYANI] },
+            limits: { perAction: inr(900_000) },
+            approval: { above: inr(50_000) },
+          },
+        })
+        .expect(201)
+    ).body as Mandate;
+
+    expect(delegated.scope.approval).toEqual({ above: inr(50_000) });
+
+    const outcome = await request(app)
+      .post("/v1/actions")
+      .send({
+        mandateId: delegated.id,
+        action: "payment.execute",
+        resource: BANK,
+        counterparty: KALYANI,
+        description: "above the delegated approval threshold",
+        nonce: nonce(),
+        amount: inr(120_000),
+      })
+      .expect(201);
+
+    expect(outcome.body.verdict).toBe("ESCALATE");
+
+    const pack = (await request(app).get(`/v1/evidence/${outcome.body.packId}`).expect(200))
+      .body as EvidencePack;
+    expect(pack.authority.effectiveScope.approval).toEqual({ above: inr(50_000) });
+
+    const report = await verifyEvidencePack(pack, { trustRoots });
+    expect(report.result).toBe("VERIFIED");
+    expect(report.authority?.verdict).toBe("ESCALATE");
+    expect(report.authority?.reproduced).toBe(true);
+    expect(
+      report.authority?.checks.find((check) => check.id === "policy.escalation")?.detail,
+    ).toMatch(/the authority itself carries that requirement/);
+  });
+
+  it("refuses a delegation that would loosen it", async () => {
+    const root = (
+      await request(app)
+        .post("/v1/mandates")
+        .send({
+          scope: { ...rootScope, approval: { above: inr(100_000) } },
+          ...window,
+          maxDelegationDepth: 2,
+        })
+        .expect(201)
+    ).body as Mandate;
+
+    const response = await request(app)
+      .post(`/v1/mandates/${root.id}/delegations`)
+      .send({ scopeDelta: { approval: { above: inr(800_000) } } })
+      .expect(422);
+
+    expect(response.body.error).toBe("delegation_would_widen");
+    expect(
+      response.body.details.map((violation: { code: string }) => violation.code),
+    ).toContain("scope/approval_weakened");
+  });
+});

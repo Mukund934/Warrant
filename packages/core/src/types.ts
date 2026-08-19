@@ -70,6 +70,10 @@ export const counterpartiesSchema = z.union([
   z.object({ allow: z.array(z.string().min(1)) }),
 ]);
 
+export const approvalRequirementSchema = z.object({
+  above: moneySchema,
+});
+
 export const scopeSchema = z.object({
   actions: z.array(z.string().min(1)),
   audience: z.array(z.string().min(1)),
@@ -78,6 +82,7 @@ export const scopeSchema = z.object({
     perAction: moneySchema.optional(),
     perPeriod: z.object({ amount: moneySchema, days: z.number().int().positive() }).optional(),
   }),
+  approval: approvalRequirementSchema.optional(),
   purpose: z.string().optional(),
 });
 
@@ -257,6 +262,7 @@ export type Agent = z.infer<typeof agentSchema>;
 export type Party = z.infer<typeof partySchema>;
 export type Counterparties = z.infer<typeof counterpartiesSchema>;
 export type Scope = z.infer<typeof scopeSchema>;
+export type ApprovalRequirement = z.infer<typeof approvalRequirementSchema>;
 export type ScopeDelta = z.infer<typeof scopeDeltaSchema>;
 export type Mandate = z.infer<typeof mandateSchema>;
 export type UnsignedMandate = Omit<Mandate, "proof">;
