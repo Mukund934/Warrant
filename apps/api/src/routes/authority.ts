@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
-import { actionRequestSchema, moneySchema, scopeSchema } from "@warrant/core";
+import { actionRequestSchema, approvalSchema, moneySchema, scopeSchema } from "@warrant/core";
 import { actorFor, scopeOf } from "../auth/tenancy.js";
 import { notFound } from "../http/errors.js";
 import { parseBody } from "../http/validate.js";
@@ -39,11 +39,12 @@ const actionSchema = z.object({
   description: z.string().min(1).max(240),
   nonce: z.string().min(8).max(120),
   amount: moneySchema.optional(),
-});
+}).strict();
 
 const signedActionSchema = z.object({
   mandateId: z.string().min(1),
   request: actionRequestSchema,
+  approval: approvalSchema.optional(),
 });
 
 export function authorityRoutes(repositories: Repositories): Router {

@@ -8,6 +8,7 @@ import {
 } from "@warrant/core";
 import type {
   ActionRequest,
+  Approval,
   Checkpoint,
   Decision,
   EvidencePack,
@@ -146,6 +147,7 @@ export async function submitAction(
 export interface PresentedActionInput {
   mandateId: string;
   request: ActionRequest;
+  approval?: Approval;
 }
 
 export async function submitSignedAction(
@@ -158,7 +160,7 @@ export async function submitSignedAction(
     throw notFound(`no mandate chain could be resolved for ${input.mandateId}`);
   }
 
-  return recordAction(input.request, chain, nowIso(), repositories, actor);
+  return recordAction(input.request, chain, nowIso(), repositories, actor, input.approval);
 }
 
 async function recordAction(
@@ -167,6 +169,7 @@ async function recordAction(
   evaluatedAt: string,
   repositories: Repositories,
   actor: Actor,
+  approval?: Approval,
 ): Promise<SubmitActionResult> {
   const leaf = chain[chain.length - 1]!;
 
@@ -193,6 +196,7 @@ async function recordAction(
     {
       trustRoots: roots,
       revocation,
+      ...(approval ? { approval } : {}),
       inputs: {
         evaluatedAt,
         replayStatus: fresh ? "fresh" : "replayed",
@@ -231,6 +235,7 @@ async function recordAction(
       decision,
       ledger: { entries: segment, head: await signSegment(segment, total, nowIso()) },
       revocation,
+      ...(approval ? { approval } : {}),
       trustRoots: roots,
     },
     recorder,

@@ -116,6 +116,12 @@ paths:
         The body carries a complete `ActionRequest` with its own proof; the service records and decides
         it but does not sign it.
 
+        **This is also the only endpoint that accepts a human approval.** An approval is bound to one
+        request by its digest, so the approver must have the request in hand before signing - which is
+        possible here and impossible on `/v1/actions`, where the service builds the request itself.
+        Sending an `approval` to that endpoint is refused rather than ignored. The service never signs
+        an approval on a human's behalf; if it did, the second-human check would mean nothing.
+
         This is where proof of possession becomes real. The signing key must resolve through the
         published trust roots and must be the subject key of the presenting mandate, so a request
         signed by anything else fails `request.signature` or `actor.possession`. The nonce is claimed
