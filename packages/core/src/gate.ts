@@ -1,5 +1,6 @@
 import { verifyActionRequest } from "./action.js";
 import { digestOf } from "./canonical.js";
+import { verifyApproval } from "./approval.js";
 import { findTrustRoot, keyLifecycleFault, validateChain } from "./chain.js";
 import { mandateDigest } from "./mandate.js";
 import { formatMoney, isScopeEmpty, permitsCounterparty, describeCounterparties } from "./scope.js";
@@ -8,6 +9,7 @@ import type { SignerIdentity } from "./sign.js";
 import { DECISION_VERSION, WarrantError } from "./types.js";
 import type {
   ActionRequest,
+  Approval,
   Check,
   Decision,
   EvaluationInputs,
@@ -22,6 +24,7 @@ export interface AssessmentContext {
   trustRoots: TrustRoot[];
   revocation: RevocationSnapshot;
   inputs: EvaluationInputs;
+  approval?: Approval;
 }
 
 export interface Assessment {
@@ -440,24 +443,63 @@ export async function assess(
         ? `the authority itself carries that requirement, so a reader of this chain reaches the same conclusion without knowing how this service is configured`
         : `this deployment applies that threshold; it is not carried in the authority`;
 
+    const approval = context.approval;
+    if (!approval) {
+      checks.push({
+        id: "policy.escalation",
+        title: "Human approval is required above the escalation threshold",
+        status: "warn",
+        detail: `${formatMoney(request.amount)} is above the ${formatMoney(
+          binding.amount,
+        )} threshold at which ${leaf.liablePrincipal.name} requires a human approval. ${origin}`,
+        expected: `at most ${formatMoney(binding.amount)} without approval`,
+        observed: formatMoney(request.amount),
+      });
+      return {
+        verdict: "ESCALATE",
+        reason: `authority is sufficient, but ${formatMoney(request.amount)} exceeds the ${formatMoney(
+          binding.amount,
+        )} threshold at which a human must approve`,
+        checks,
+        effectiveScope: scope,
+      };
+    }
+
+    const approvalChecks = await verifyApproval(approval, {
+      request,
+      liablePrincipalId: leaf.liablePrincipal.id,
+      trustRoots: context.trustRoots,
+    });
+    checks.push(...approvalChecks);
+
+    const unsound = approvalChecks.find((check) => check.status === "fail");
+    if (unsound) {
+      checks.push({
+        id: "policy.escalation",
+        title: "Human approval is required above the escalation threshold",
+        status: "warn",
+        detail: `${formatMoney(request.amount)} is above the ${formatMoney(
+          binding.amount,
+        )} threshold at which ${leaf.liablePrincipal.name} requires a human approval, and the approval presented does not hold: ${unsound.detail}`,
+        expected: `a sound approval for amounts above ${formatMoney(binding.amount)}`,
+        observed: unsound.id,
+      });
+      return {
+        verdict: "ESCALATE",
+        reason: `${formatMoney(request.amount)} needs a human approval, and the one presented does not hold: ${unsound.detail}`,
+        checks,
+        effectiveScope: scope,
+      };
+    }
+
     checks.push({
       id: "policy.escalation",
       title: "Human approval is required above the escalation threshold",
-      status: "warn",
+      status: "pass",
       detail: `${formatMoney(request.amount)} is above the ${formatMoney(
         binding.amount,
-      )} threshold at which ${leaf.liablePrincipal.name} requires a human approval. ${origin}`,
-      expected: `at most ${formatMoney(binding.amount)} without approval`,
-      observed: formatMoney(request.amount),
+      )} threshold at which ${leaf.liablePrincipal.name} requires a human approval, and ${approval.approver.name} approved this exact action at ${approval.approvedAt}. ${origin}`,
     });
-    return {
-      verdict: "ESCALATE",
-      reason: `authority is sufficient, but ${formatMoney(request.amount)} exceeds the ${formatMoney(
-        binding.amount,
-      )} threshold at which a human must approve`,
-      checks,
-      effectiveScope: scope,
-    };
   }
 
   return {

@@ -304,6 +304,7 @@ export async function verifyEvidencePack(
     trustRoots,
     revocation: pack.revocation,
     inputs: pack.decision.inputs,
+    ...(pack.approval ? { approval: pack.approval } : {}),
   });
 
   checks.push(...reassessment.checks.filter((check) => AUTHENTICITY_CHECKS.has(check.id)));

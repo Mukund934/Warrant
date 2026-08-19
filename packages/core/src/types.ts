@@ -211,6 +211,15 @@ export const trustRootSchema = z.object({
   acceptUntil: isoDateTime.optional(),
 });
 
+export const approvalSchema = z.object({
+  id: z.string().min(1),
+  requestDigest: digestString,
+  approver: legalPersonSchema,
+  approvedAt: isoDateTime,
+  note: z.string().min(1).max(240).optional(),
+  proof: proofSchema,
+});
+
 export const revocationSnapshotSchema = z.object({
   asOf: isoDateTime,
   revoked: z.array(z.object({ mandateId: z.string().min(1), revokedAt: isoDateTime, reason: z.string().min(1) })),
@@ -247,6 +256,7 @@ export const evidencePackSchema = z.object({
     head: signedHeadSchema,
   }),
   revocation: revocationSnapshotSchema,
+  approval: approvalSchema.optional(),
   trustRoots: z.array(trustRootSchema).min(1),
   integrity: z.object({
     packDigest: digestString,
@@ -279,6 +289,8 @@ export type LedgerEntry = z.infer<typeof ledgerEntrySchema>;
 export type SignedHead = z.infer<typeof signedHeadSchema>;
 export type TrustRoot = z.infer<typeof trustRootSchema>;
 export type RevocationSnapshot = z.infer<typeof revocationSnapshotSchema>;
+export type Approval = z.infer<typeof approvalSchema>;
+export type UnsignedApproval = Omit<Approval, "proof">;
 export type EvidencePack = z.infer<typeof evidencePackSchema>;
 
 export class WarrantError extends Error {

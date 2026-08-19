@@ -5,6 +5,7 @@ import type { SignerIdentity } from "./sign.js";
 import { PACK_VERSION } from "./types.js";
 import type {
   ActionRequest,
+  Approval,
   Decision,
   EvidencePack,
   LedgerEntry,
@@ -23,6 +24,7 @@ export interface EvidencePackInput {
   decision: Decision;
   ledger: { entries: LedgerEntry[]; head: SignedHead };
   revocation: RevocationSnapshot;
+  approval?: Approval;
   trustRoots: TrustRoot[];
 }
 
@@ -65,6 +67,7 @@ export async function buildEvidencePack(
     decision: input.decision,
     ledger: input.ledger,
     revocation: input.revocation,
+    ...(input.approval ? { approval: input.approval } : {}),
     trustRoots: input.trustRoots,
   };
 

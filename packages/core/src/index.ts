@@ -7,6 +7,7 @@ export * from "./scope.js";
 export * from "./action.js";
 export * from "./mandate.js";
 export * from "./chain.js";
+export * from "./approval.js";
 export * from "./gate.js";
 export * from "./ledger.js";
 export * from "./evidence.js";
