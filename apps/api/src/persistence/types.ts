@@ -1,4 +1,12 @@
-import type { AgentStatus, EvidencePack, LedgerEntry, Mandate, TrustRoot } from "@warrant/core";
+import type {
+  AgentStatus,
+  EvidencePack,
+  LedgerEntry,
+  Mandate,
+  Money,
+  RiskLevel,
+  TrustRoot,
+} from "@warrant/core";
 
 export type TenantScope = string | null;
 
@@ -108,6 +116,49 @@ export interface AgentRepository {
   rotate(agentId: string, replacement: AgentKey, retiredAt: string): Promise<boolean>;
 }
 
+export type CapabilityStatus = "active" | "deprecated" | "withdrawn";
+
+export type CatalogueEnforcement = "advisory" | "required";
+
+export interface Capability {
+  id: string;
+  organisationId: string;
+  title: string;
+  description: string;
+  risk: RiskLevel;
+  amount: "required" | "optional" | "forbidden";
+  currencies?: Money["currency"][];
+  approvalAbove?: Money;
+  status: CapabilityStatus;
+  registeredAt: string;
+  statusChangedAt: string;
+}
+
+export interface CatalogueState {
+  enforcement: CatalogueEnforcement;
+  size: number;
+}
+
+export interface CapabilityRepository {
+  register(capability: Capability): Promise<boolean>;
+  // Organisation-scoped by construction, not by filter. A capability id is unique only within an
+  // organisation, so a nullable scope here would let one tenant's catalogue answer for another's.
+  find(id: string, organisationId: string): Promise<Capability | undefined>;
+  list(scope: TenantScope): Promise<Capability[]>;
+  setStatus(
+    id: string,
+    status: CapabilityStatus,
+    changedAt: string,
+    organisationId: string,
+  ): Promise<boolean>;
+  catalogue(organisationId: string): Promise<CatalogueState>;
+  setEnforcement(
+    organisationId: string,
+    enforcement: CatalogueEnforcement,
+    changedAt: string,
+  ): Promise<void>;
+}
+
 export interface Repositories {
   mandates: MandateRepository;
   evidence: EvidenceRepository;
@@ -115,4 +166,5 @@ export interface Repositories {
   nonces: NonceStore;
   directory: DirectoryRepository;
   agents: AgentRepository;
+  capabilities: CapabilityRepository;
 }

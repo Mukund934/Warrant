@@ -144,10 +144,27 @@ export const agentStatusSchema = z.enum([
   "archived",
 ]);
 
+export const riskLevelSchema = z.enum(["low", "medium", "high", "critical"]);
+
+export const capabilityContractSchema = z.object({
+  amount: z.enum(["required", "optional", "forbidden"]),
+  currencies: z.array(moneySchema.shape.currency).min(1).optional(),
+});
+
+export const capabilityResolutionSchema = z.object({
+  id: z.string().min(1),
+  status: z.enum(["registered", "deprecated", "withdrawn", "unregistered"]),
+  enforcement: z.enum(["advisory", "required"]),
+  risk: riskLevelSchema.optional(),
+  contract: capabilityContractSchema.optional(),
+  approvalAbove: moneySchema.optional(),
+});
+
 export const evaluationInputsSchema = z.object({
   evaluatedAt: isoDateTime,
   replayStatus: z.enum(["fresh", "replayed", "unchecked"]),
   agentStatus: agentStatusSchema.optional(),
+  capability: capabilityResolutionSchema.optional(),
   freshness: freshnessPolicySchema.optional(),
   priorSpend: moneySchema.optional(),
   escalationThreshold: moneySchema.optional(),
@@ -283,6 +300,9 @@ export type CheckStatus = Check["status"];
 export type FreshnessPolicy = z.infer<typeof freshnessPolicySchema>;
 export type EvaluationInputs = z.infer<typeof evaluationInputsSchema>;
 export type AgentStatus = z.infer<typeof agentStatusSchema>;
+export type RiskLevel = z.infer<typeof riskLevelSchema>;
+export type CapabilityContract = z.infer<typeof capabilityContractSchema>;
+export type CapabilityResolution = z.infer<typeof capabilityResolutionSchema>;
 export type Decision = z.infer<typeof decisionSchema>;
 export type Verdict = Decision["verdict"];
 export type LedgerEntry = z.infer<typeof ledgerEntrySchema>;

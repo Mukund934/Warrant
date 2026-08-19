@@ -21,6 +21,7 @@ import type {
 import { notFound, unprocessable } from "../http/errors.js";
 import type { Repositories, TenantScope } from "../persistence/types.js";
 import { agentStatusFor, trustRootsFor } from "./agents.js";
+import { resolveCapability } from "./capabilities.js";
 import { DEMONSTRATION_ACTOR } from "./issuance.js";
 import type { Actor } from "./issuance.js";
 import {
@@ -178,6 +179,14 @@ async function recordAction(
   const roots = await trustRootsFor(repositories, actor.scope);
   const agentStatus = await agentStatusFor(repositories, leaf.subject.keyId);
 
+  // The catalogue consulted is the one belonging to the organisation that issued the authority, not
+  // the one the caller happens to be signed in to. An organisation defines what its own verbs mean.
+  const capability = await resolveCapability(
+    repositories,
+    chain[0]!.organisation.id,
+    request.action,
+  );
+
   const perPeriod = leaf.scope.limits.perPeriod;
   const priorSpend = perPeriod
     ? await priorSpendFor(
@@ -203,6 +212,7 @@ async function recordAction(
         freshness: REQUEST_FRESHNESS,
         escalationThreshold: ESCALATION_THRESHOLD,
         ...(agentStatus ? { agentStatus } : {}),
+        ...(capability ? { capability } : {}),
         ...(priorSpend ? { priorSpend } : {}),
       },
     },

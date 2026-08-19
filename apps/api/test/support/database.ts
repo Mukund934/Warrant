@@ -39,7 +39,13 @@ export class TestSchema {
   async create(): Promise<void> {
     const bootstrap = this.open(undefined, 1);
     const migrations = await Promise.all(
-      ["001_initial.sql", "002_append_only_grants.sql", "003_organisations.sql", "004_agents.sql"].map((file) =>
+      [
+        "001_initial.sql",
+        "002_append_only_grants.sql",
+        "003_organisations.sql",
+        "004_agents.sql",
+        "005_capabilities.sql",
+      ].map((file) =>
         readFile(new URL(`../../migrations/${file}`, import.meta.url), "utf8"),
       ),
     );

@@ -1,11 +1,16 @@
 import pg from "pg";
 import type { Pool } from "pg";
 import { GENESIS_DIGEST, WarrantError, ledgerEntryDigest } from "@warrant/core";
-import type { AgentStatus, EvidencePack, LedgerEntry, Mandate } from "@warrant/core";
+import type { AgentStatus, EvidencePack, LedgerEntry, Mandate, Money, RiskLevel } from "@warrant/core";
 import type {
   Account,
   AgentKey,
   AgentRepository,
+  Capability,
+  CapabilityRepository,
+  CapabilityStatus,
+  CatalogueEnforcement,
+  CatalogueState,
   DirectoryRepository,
   EvidenceRepository,
   LedgerRepository,
@@ -632,6 +637,140 @@ export class PostgresDirectoryRepository implements DirectoryRepository {
   }
 }
 
+const CAPABILITY_COLUMNS =
+  "organisation_id, id, title, description, risk, amount_rule, currencies, " +
+  "approval_above_currency, approval_above_minor, status, registered_at, status_changed_at";
+
+interface CapabilityRow {
+  organisation_id: string;
+  id: string;
+  title: string;
+  description: string;
+  risk: RiskLevel;
+  amount_rule: Capability["amount"];
+  currencies: string[] | null;
+  approval_above_currency: string | null;
+  approval_above_minor: string | null;
+  status: CapabilityStatus;
+  registered_at: Date;
+  status_changed_at: Date;
+}
+
+function capabilityFrom(row: CapabilityRow): Capability {
+  const approval =
+    row.approval_above_currency !== null && row.approval_above_minor !== null
+      ? {
+          currency: row.approval_above_currency as Money["currency"],
+          minor: Number(row.approval_above_minor),
+        }
+      : undefined;
+
+  return {
+    id: row.id,
+    organisationId: row.organisation_id,
+    title: row.title,
+    description: row.description,
+    risk: row.risk,
+    amount: row.amount_rule,
+    ...(row.currencies && row.currencies.length > 0
+      ? { currencies: row.currencies as Money["currency"][] }
+      : {}),
+    ...(approval ? { approvalAbove: approval } : {}),
+    status: row.status,
+    registeredAt: isoFromDatabase(row.registered_at),
+    statusChangedAt: isoFromDatabase(row.status_changed_at),
+  };
+}
+
+export class PostgresCapabilityRepository implements CapabilityRepository {
+  constructor(private readonly pool: Pool) {}
+
+  async register(capability: Capability): Promise<boolean> {
+    const inserted = await this.pool.query(
+      `insert into capabilities (
+         organisation_id, id, title, description, risk, amount_rule, currencies,
+         approval_above_currency, approval_above_minor, status, registered_at, status_changed_at
+       )
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+       on conflict do nothing`,
+      [
+        capability.organisationId,
+        capability.id,
+        capability.title,
+        capability.description,
+        capability.risk,
+        capability.amount,
+        capability.currencies ?? null,
+        capability.approvalAbove?.currency ?? null,
+        capability.approvalAbove?.minor ?? null,
+        capability.status,
+        capability.registeredAt,
+        capability.statusChangedAt,
+      ],
+    );
+    return inserted.rowCount === 1;
+  }
+
+  async find(id: string, organisationId: string): Promise<Capability | undefined> {
+    const rows = await this.pool.query<CapabilityRow>(
+      `select ${CAPABILITY_COLUMNS} from capabilities
+       where organisation_id = $1 and id = $2`,
+      [organisationId, id],
+    );
+    const row = rows.rows[0];
+    return row ? capabilityFrom(row) : undefined;
+  }
+
+  async list(scope: TenantScope): Promise<Capability[]> {
+    const rows = await this.pool.query<CapabilityRow>(
+      `select ${CAPABILITY_COLUMNS} from capabilities
+       where ($1::text is null or organisation_id = $1)
+       order by id`,
+      [scope],
+    );
+    return rows.rows.map(capabilityFrom);
+  }
+
+  async setStatus(
+    id: string,
+    status: CapabilityStatus,
+    changedAt: string,
+    organisationId: string,
+  ): Promise<boolean> {
+    const updated = await this.pool.query(
+      `update capabilities set status = $3, status_changed_at = $4
+       where organisation_id = $1 and id = $2`,
+      [organisationId, id, status, changedAt],
+    );
+    return updated.rowCount === 1;
+  }
+
+  async catalogue(organisationId: string): Promise<CatalogueState> {
+    const rows = await this.pool.query<{ enforcement: CatalogueEnforcement | null; size: string }>(
+      `select
+         (select enforcement from catalogue_settings where organisation_id = $1) as enforcement,
+         (select count(*) from capabilities where organisation_id = $1) as size`,
+      [organisationId],
+    );
+    const row = rows.rows[0];
+    return { enforcement: row?.enforcement ?? "advisory", size: Number(row?.size ?? 0) };
+  }
+
+  async setEnforcement(
+    organisationId: string,
+    enforcement: CatalogueEnforcement,
+    changedAt: string,
+  ): Promise<void> {
+    await this.pool.query(
+      `insert into catalogue_settings (organisation_id, enforcement, changed_at)
+       values ($1, $2, $3)
+       on conflict (organisation_id) do update
+         set enforcement = excluded.enforcement, changed_at = excluded.changed_at`,
+      [organisationId, enforcement, changedAt],
+    );
+  }
+}
+
 export function createPostgresRepositories(pool: Pool, retentionSeconds: number): Repositories {
   return {
     mandates: new PostgresMandateRepository(pool),
@@ -640,5 +779,6 @@ export function createPostgresRepositories(pool: Pool, retentionSeconds: number)
     nonces: new PostgresNonceStore(pool, retentionSeconds),
     directory: new PostgresDirectoryRepository(pool),
     agents: new PostgresAgentRepository(pool),
+    capabilities: new PostgresCapabilityRepository(pool),
   };
 }

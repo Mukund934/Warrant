@@ -52,6 +52,26 @@ function fail(id: string, title: string, detail: string, expected?: string, obse
   return check;
 }
 
+const ORIGIN: Record<"authority" | "capability" | "deployment", string> = {
+  authority:
+    "the authority itself carries that requirement, so a reader of this chain reaches the same conclusion without knowing how this service is configured",
+  capability:
+    "this organisation's capability catalogue attaches that requirement to the capability, and the decision records it, so a reader reaches the same conclusion without holding the catalogue",
+  deployment: "this deployment applies that threshold; it is not carried in the authority",
+};
+
+// An advisory catalogue is still recorded and still reproduced; it simply does not refuse. Making
+// this the default is what lets an organisation describe its capabilities before it depends on them.
+function refusal(enforcement: "advisory" | "required"): Check["status"] {
+  return enforcement === "required" ? "fail" : "warn";
+}
+
+function advisoryNote(enforcement: "advisory" | "required"): string {
+  return enforcement === "required"
+    ? ""
+    : ". This organisation's catalogue is advisory, so the action was not refused for it";
+}
+
 function describeSeconds(seconds: number): string {
   const whole = Math.round(Math.abs(seconds));
   if (whole < 60) return `${whole}s`;
@@ -414,6 +434,111 @@ export async function assess(
     );
   }
 
+  const capability = context.inputs.capability;
+  const CAPABILITY_TITLE = "The requested capability is one the organisation defines";
+  const CONTRACT_TITLE = "The request matches the shape the capability declares";
+  const defined =
+    capability?.status === "registered" || capability?.status === "deprecated" ? capability : undefined;
+
+  if (!capability) {
+    checks.push({
+      id: "capability.registered",
+      title: CAPABILITY_TITLE,
+      status: "skip",
+      detail:
+        "this decision consulted no capability catalogue, so the action name was taken at face value",
+    });
+  } else if (capability.status === "registered") {
+    checks.push(
+      pass(
+        "capability.registered",
+        CAPABILITY_TITLE,
+        `${capability.id} is registered in this organisation's catalogue${
+          capability.risk ? ` at ${capability.risk} risk` : ""
+        }`,
+      ),
+    );
+  } else if (capability.status === "deprecated") {
+    checks.push({
+      id: "capability.registered",
+      title: CAPABILITY_TITLE,
+      status: "warn",
+      detail: `${capability.id} is deprecated in this organisation's catalogue. It still carries authority, but the organisation has signalled that it is going away`,
+    });
+  } else {
+    checks.push({
+      id: "capability.registered",
+      title: CAPABILITY_TITLE,
+      status: refusal(capability.enforcement),
+      detail:
+        (capability.status === "withdrawn"
+          ? `${capability.id} was withdrawn from this organisation's catalogue, so the organisation no longer states what it means`
+          : `${capability.id} matches no capability this organisation has registered, so nothing states what it means`) +
+        advisoryNote(capability.enforcement),
+      expected: "a capability this organisation's catalogue defines",
+      observed: `${capability.id} (${capability.status})`,
+    });
+  }
+
+  if (capability) {
+    const contract = defined?.contract;
+    if (!contract) {
+      checks.push({
+        id: "capability.contract",
+        title: CONTRACT_TITLE,
+        status: "skip",
+        detail: defined
+          ? `${capability.id} declares no constraint on the shape of a request`
+          : `this organisation's catalogue defines no ${capability.id}, so there is no declared shape to match`,
+      });
+    } else if (contract.amount === "required" && !request.amount) {
+      checks.push({
+        id: "capability.contract",
+        title: CONTRACT_TITLE,
+        status: refusal(capability.enforcement),
+        detail: `${capability.id} is defined as an action that moves an amount, and this request carries none${advisoryNote(
+          capability.enforcement,
+        )}`,
+        expected: "an amount",
+        observed: "no amount",
+      });
+    } else if (contract.amount === "forbidden" && request.amount) {
+      checks.push({
+        id: "capability.contract",
+        title: CONTRACT_TITLE,
+        status: refusal(capability.enforcement),
+        detail: `${capability.id} is defined as an action that moves no money, and this request carries an amount${advisoryNote(
+          capability.enforcement,
+        )}`,
+        expected: "no amount",
+        observed: formatMoney(request.amount!),
+      });
+    } else if (
+      request.amount &&
+      contract.currencies &&
+      !contract.currencies.includes(request.amount.currency)
+    ) {
+      checks.push({
+        id: "capability.contract",
+        title: CONTRACT_TITLE,
+        status: refusal(capability.enforcement),
+        detail: `${capability.id} is defined only for ${contract.currencies.join(
+          " and ",
+        )}${advisoryNote(capability.enforcement)}`,
+        expected: contract.currencies.join(", "),
+        observed: request.amount.currency,
+      });
+    } else {
+      checks.push(
+        pass(
+          "capability.contract",
+          CONTRACT_TITLE,
+          `this request matches the shape ${capability.id} declares`,
+        ),
+      );
+    }
+  }
+
   const failing = checks.filter((check) => check.status === "fail");
   if (failing.length > 0) {
     return {
@@ -425,9 +550,13 @@ export async function assess(
   }
 
   const carried = scope.approval?.above;
+  // Any recorded threshold is a candidate, whatever the capability's standing. A crafted pack can
+  // therefore only ever tighten this, never slip past it.
+  const catalogued = capability?.approvalAbove;
   const configured = context.inputs.escalationThreshold;
   const applicable = [
     ...(carried ? [{ source: "authority" as const, amount: carried }] : []),
+    ...(catalogued ? [{ source: "capability" as const, amount: catalogued }] : []),
     ...(configured ? [{ source: "deployment" as const, amount: configured }] : []),
   ].filter((candidate) => candidate.amount.currency === request.amount?.currency);
 
@@ -438,10 +567,7 @@ export async function assess(
   );
 
   if (binding && request.amount && request.amount.minor > binding.amount.minor) {
-    const origin =
-      binding.source === "authority"
-        ? `the authority itself carries that requirement, so a reader of this chain reaches the same conclusion without knowing how this service is configured`
-        : `this deployment applies that threshold; it is not carried in the authority`;
+    const origin = ORIGIN[binding.source];
 
     const approval = context.approval;
     if (!approval) {

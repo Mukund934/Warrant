@@ -33,6 +33,8 @@ tags:
     description: Who may act under which organisation, and in what role.
   - name: agents
     description: Machine identities, their keys and their lifecycle.
+  - name: capabilities
+    description: What an organisation's action names mean, and what they demand.
   - name: verification
     description: Relying-party operations. Nothing here requires trusting this service.
 
@@ -292,6 +294,92 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "422": { description: "`private_key_supplied`, `unsupported_key` or `transition_refused`." }
 
+  /capabilities:
+    post:
+      tags: [capabilities]
+      summary: Register a capability
+      description: >
+        Needs `admin` or `owner`. A capability gives an action name a definition: a risk level, a
+        declared shape, and optionally an approval threshold. Ids are lower-case and qualified, like
+        `payment.execute`.
+
+        **The catalogue is consulted by the gate, never carried in the mandate.** `Scope.actions`
+        stays an array of strings, so every mandate issued before the catalogue existed keeps working
+        and no signed format changed. What the gate found is written into the signed decision, which
+        is how a stranger reproduces a catalogue-driven verdict without holding the catalogue.
+      security: [{ bearerAuth: [] }]
+      responses:
+        "201": { description: The registered capability. }
+        "400": { $ref: "#/components/responses/InvalidRequest" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/InsufficientRole" }
+        "422": { description: "`capability_id_rejected`, `capability_contradicts_itself` or `capability_exists`." }
+    get:
+      tags: [capabilities]
+      summary: List this organisation's capabilities
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200": { description: The capabilities registered to the caller's organisation. }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+
+  /capabilities/enforcement:
+    post:
+      tags: [capabilities]
+      summary: Choose whether the catalogue refuses or only observes
+      description: >
+        Needs `admin` or `owner`. `advisory` is the default and never changes a verdict — an
+        unregistered capability is recorded as a warning. `required` makes the catalogue binding, so
+        an action this organisation does not define is refused.
+
+        An organisation that has registered no capability at all is not consulted in either mode.
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200": { description: The catalogue's enforcement mode and how many capabilities it holds. }
+        "400": { $ref: "#/components/responses/InvalidRequest" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/InsufficientRole" }
+    get:
+      tags: [capabilities]
+      summary: Read the catalogue's enforcement mode
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200": { description: The enforcement mode and the size of the catalogue. }
+        "400": { $ref: "#/components/responses/InvalidRequest" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+
+  /capabilities/{id}:
+    get:
+      tags: [capabilities]
+      summary: Read one capability
+      parameters: [{ $ref: "#/components/parameters/CapabilityId" }]
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200": { description: The capability as this organisation defines it. }
+        "400": { $ref: "#/components/responses/InvalidRequest" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /capabilities/{id}/status:
+    post:
+      tags: [capabilities]
+      summary: Deprecate, withdraw or restore a capability
+      description: >
+        Needs `admin` or `owner`. Active may become deprecated or withdrawn, deprecated may return to
+        active or be withdrawn, and withdrawn is final.
+
+        **Withdrawal is not a second revocation mechanism.** Like agent suspension, it changes what
+        the gate records at the moment of a future action; it never rewrites a decision already made,
+        and evidence issued while the capability was registered keeps reproducing its verdict.
+      parameters: [{ $ref: "#/components/parameters/CapabilityId" }]
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200": { description: The capability in its new state. }
+        "400": { $ref: "#/components/responses/InvalidRequest" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/InsufficientRole" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { description: "`transition_refused` or `already_in_state`, naming what was permitted." }
+
   /trust-roots:
     get:
       tags: [verification]
@@ -366,6 +454,11 @@ components:
       schema: { type: string }
     AccountId:
       name: accountId
+      in: path
+      required: true
+      schema: { type: string }
+    CapabilityId:
+      name: id
       in: path
       required: true
       schema: { type: string }

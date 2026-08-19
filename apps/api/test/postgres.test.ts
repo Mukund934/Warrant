@@ -6,6 +6,7 @@ import type { EvidencePack, LedgerEntry, Mandate, Scope } from "@warrant/core";
 import { trustRoots } from "@warrant/core/fixtures";
 import { createApp } from "../src/app.js";
 import {
+  PostgresCapabilityRepository,
   PostgresLedgerRepository,
   PostgresNonceStore,
   createPostgresRepositories,
@@ -732,6 +733,111 @@ withDatabase("the agent registry on real SQL", () => {
         `insert into agents (id, organisation_id, name, runtime, status, registered_at, status_changed_at)
          values ($1, $2, 'Bad state', 'node/22', 'retired', now(), now())`,
         [`agt_badstate_${crypto.randomUUID().slice(0, 8)}`, owner.organisationId],
+      ),
+    ).rejects.toThrow(/check constraint|violates/i);
+  }, 60_000);
+});
+
+withDatabase("the capability catalogue in Postgres", () => {
+  const store = () => new PostgresCapabilityRepository(main.admin);
+  const orgs = { first: "", second: "" };
+
+  const record = (organisationId: string, overrides: Record<string, unknown> = {}) => ({
+    id: "payment.execute",
+    organisationId,
+    title: "Execute a payment",
+    description: "Move money to a supplier against an approved invoice",
+    risk: "high" as const,
+    amount: "required" as const,
+    currencies: ["INR" as const],
+    approvalAbove: { currency: "INR" as const, minor: 20_000_000 },
+    status: "active" as const,
+    registeredAt: "2026-08-19T09:00:00Z",
+    statusChangedAt: "2026-08-19T09:00:00Z",
+    ...overrides,
+  });
+
+  beforeAll(async () => {
+    if (!databaseAvailable) return;
+    const stamp = crypto.randomUUID().slice(0, 8);
+    orgs.first = `org:catalogue-a-${stamp}`;
+    orgs.second = `org:catalogue-b-${stamp}`;
+
+    for (const id of [orgs.first, orgs.second]) {
+      await main.admin.query(
+        "insert into organisations (id, name, jurisdiction) values ($1, $2, 'IN-MH')",
+        [id, `Catalogue ${id.slice(-8)}`],
+      );
+    }
+  }, 120_000);
+
+  it("lets two organisations hold the same capability id with different meanings", async () => {
+    const capabilities = store();
+    expect(await capabilities.register(record(orgs.first))).toBe(true);
+    expect(await capabilities.register(record(orgs.second, { risk: "low" }))).toBe(true);
+
+    expect((await capabilities.find("payment.execute", orgs.first))?.risk).toBe("high");
+    expect((await capabilities.find("payment.execute", orgs.second))?.risk).toBe("low");
+  }, 60_000);
+
+  it("hands a threshold back as a number, not the string the driver returns for a bigint", async () => {
+    const capabilities = store();
+    const found = await capabilities.find("payment.execute", orgs.first);
+
+    expect(typeof found?.approvalAbove?.minor).toBe("number");
+    expect(found?.approvalAbove?.minor).toBe(20_000_000);
+    expect(found?.currencies).toEqual(["INR"]);
+  }, 60_000);
+
+  it("refuses in SQL a status change aimed at another organisation's capability", async () => {
+    const capabilities = store();
+    const applied = await capabilities.setStatus(
+      "payment.execute",
+      "withdrawn",
+      "2026-08-19T10:00:00Z",
+      `${orgs.first}-not-a-real-organisation`,
+    );
+
+    expect(applied).toBe(false);
+    expect((await capabilities.find("payment.execute", orgs.first))?.status).toBe("active");
+  }, 60_000);
+
+  it("counts and enforces per organisation, never across the table", async () => {
+    const capabilities = store();
+    await capabilities.setEnforcement(orgs.first, "required", "2026-08-19T10:00:00Z");
+
+    expect(await capabilities.catalogue(orgs.first)).toEqual({ enforcement: "required", size: 1 });
+    expect(await capabilities.catalogue(orgs.second)).toEqual({ enforcement: "advisory", size: 1 });
+  }, 60_000);
+
+  it("will not record a capability against an organisation that does not exist", async () => {
+    await expect(
+      main.admin.query(
+        `insert into capabilities (organisation_id, id, title, description, risk, amount_rule, status)
+         values ($1, 'payment.execute', 'Orphan', 'No owner', 'low', 'optional', 'active')`,
+        ["org:does-not-exist"],
+      ),
+    ).rejects.toThrow(/foreign key|violates/i);
+  }, 60_000);
+
+  it("will not record a risk level the schema does not know", async () => {
+    await expect(
+      main.admin.query(
+        `insert into capabilities (organisation_id, id, title, description, risk, amount_rule, status)
+         values ($1, 'payment.unknown', 'Bad risk', 'Unknown level', 'apocalyptic', 'optional', 'active')`,
+        [orgs.first],
+      ),
+    ).rejects.toThrow(/check constraint|violates/i);
+  }, 60_000);
+
+  it("will not record half an approval threshold", async () => {
+    await expect(
+      main.admin.query(
+        `insert into capabilities (
+           organisation_id, id, title, description, risk, amount_rule, status, approval_above_currency
+         )
+         values ($1, 'payment.half', 'Half a threshold', 'Currency without an amount', 'low', 'optional', 'active', 'INR')`,
+        [orgs.first],
       ),
     ).rejects.toThrow(/check constraint|violates/i);
   }, 60_000);

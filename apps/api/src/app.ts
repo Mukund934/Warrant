@@ -9,11 +9,12 @@ import { createInMemoryRepositories } from "./persistence/memory.js";
 import type { Repositories } from "./persistence/types.js";
 import { agentRoutes } from "./routes/agents.js";
 import { authorityRoutes } from "./routes/authority.js";
+import { capabilityRoutes } from "./routes/capabilities.js";
 import { catalogueRoutes } from "./routes/catalogue.js";
 import { directoryRoutes } from "./routes/directory.js";
 
 export const AUTHORITY_PATHS = ["/v1/mandates", "/v1/actions", "/v1/checkpoint"];
-export const DIRECTORY_PATHS = ["/v1/organisations", "/v1/agents"];
+export const DIRECTORY_PATHS = ["/v1/organisations", "/v1/agents", "/v1/capabilities"];
 export const PROTECTED_PATHS = [...AUTHORITY_PATHS, ...DIRECTORY_PATHS];
 
 export interface DatabaseProbe {
@@ -80,6 +81,7 @@ export function createApp(options: AppOptions = {}): Express {
 
   app.use("/v1", directoryRoutes(repositories));
   app.use("/v1", agentRoutes(repositories));
+  app.use("/v1", capabilityRoutes(repositories));
   app.use("/v1", authorityRoutes(repositories));
 
   app.use(notFoundHandler);
