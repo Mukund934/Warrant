@@ -441,3 +441,46 @@ describe("an approval requirement travels with the authority", () => {
     ).toContain("scope/approval_weakened");
   });
 });
+
+describe("reading what a chain actually confers", () => {
+  it("says what each hop changed, in words, and intersects the whole chain", async () => {
+    const root = await issueRoot();
+    const delegated = await delegateTo(root.id, 500_000, 1_500_000).expect(201);
+
+    const view = await request(app)
+      .get(`/v1/mandates/${delegated.body.id}/authority`)
+      .expect(200);
+
+    expect(view.body.chain).toHaveLength(2);
+    expect(view.body.chain[0].depth).toBe(0);
+    expect(view.body.hops).toHaveLength(1);
+
+    const hop = view.body.hops[0];
+    expect(hop.narrowed).toBe(true);
+    expect(hop.widened).toBe(false);
+
+    const actions = hop.changes.find((change: { field: string }) => change.field === "actions");
+    expect(actions.removed).toEqual(["invoice.read", "payment.approve"]);
+    expect(actions.summary).toBe("dropped invoice.read and payment.approve");
+
+    const limit = hop.changes.find(
+      (change: { field: string }) => change.field === "limits.perAction",
+    );
+    expect(limit.summary).toMatch(/^lowered from ₹/);
+
+    expect(view.body.effectiveScope.actions).toEqual(["payment.execute"]);
+    expect(view.body.effectiveScope.limits.perAction).toEqual(inr(500_000));
+  });
+
+  it("reports no hops for a root mandate that has delegated to nobody", async () => {
+    const root = await issueRoot();
+    const view = await request(app).get(`/v1/mandates/${root.id}/authority`).expect(200);
+
+    expect(view.body.chain).toHaveLength(1);
+    expect(view.body.hops).toEqual([]);
+  });
+
+  it("refuses a chain it cannot resolve", async () => {
+    await request(app).get("/v1/mandates/mnd_nope/authority").expect(404);
+  });
+});

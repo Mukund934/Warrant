@@ -1,6 +1,13 @@
 #!/usr/bin/env node
 import { readFile } from "node:fs/promises";
-import { assess, describeCounterparties, runVector, thumbprintOf, verifyEvidencePack } from "@warrant/core";
+import {
+  assess,
+  describeCounterparties,
+  diffChain,
+  runVector,
+  thumbprintOf,
+  verifyEvidencePack,
+} from "@warrant/core";
 import type {
   Check,
   ConformanceManifest,
@@ -14,6 +21,7 @@ const USAGE = `warrant-verify - check a Warrant evidence pack without contacting
   warrant-verify <pack.json> [options]      check a pack and reproduce its verdict
   warrant-verify inspect <pack.json>        read a pack without verifying it
   warrant-verify replay <pack.json>         re-run the authority decision, check by check
+  warrant-verify diff <pack.json>           show what each hop of the chain changed
   warrant-verify inspect-key <keys.json>    read a key set: thumbprints and lifecycle
   warrant-verify conformance <directory>    run a published conformance suite
 
@@ -361,6 +369,54 @@ async function replay(path: string, trustRootsPath?: string): Promise<number> {
   return matches ? 0 : 1;
 }
 
+async function diff(path: string): Promise<number> {
+  const pack = await loadPack(path);
+  if (typeof pack === "number") return pack;
+
+  const hops = diffChain(pack.authority.chain);
+
+  console.log("");
+  console.log(bold("  Warrant authority diff"));
+  console.log(`  ${dim(`${pack.authority.chain.length} mandates · ${path}`)}`);
+  console.log(`  ${dim("computed from the pack alone — nothing was contacted")}`);
+  console.log("");
+
+  if (hops.length === 0) {
+    console.log(`  ${dim("a single mandate delegates to nobody, so there is nothing to compare")}`);
+    console.log("");
+    return 0;
+  }
+
+  let widened = false;
+  for (const hop of hops) {
+    console.log(bold(`  ${hop.from.subject} → ${hop.to.subject}`));
+    console.log(`  ${dim(`depth ${hop.from.depth} to ${hop.to.depth} · ${hop.to.id}`)}`);
+
+    const moved = hop.changes.filter((change) => change.direction !== "unchanged");
+    if (moved.length === 0) {
+      console.log(`  ${dim("carried the authority forward unchanged")}`);
+    }
+    for (const change of moved) {
+      const mark = change.direction === "widened" ? "!" : "-";
+      console.log(`  ${mark} ${change.field.padEnd(16)} ${change.summary}`);
+      if (change.direction === "widened") {
+        widened = true;
+        console.log(`    ${dim(`${change.violation} · ${change.from} → ${change.to}`)}`);
+      }
+    }
+    console.log("");
+  }
+
+  if (widened) {
+    console.log(bold("  At least one hop claims more than the mandate above it holds."));
+    console.log(`  ${dim("a chain like this is refused at issuance, so treat it as forged")}`);
+    console.log("");
+    return 1;
+  }
+
+  return 0;
+}
+
 async function inspectKey(path: string): Promise<number> {
   const keys = await loadKeys(path);
   if (typeof keys === "number") return keys;
@@ -408,6 +464,7 @@ const COMMANDS: Record<string, (target: string, rootsPath?: string) => Promise<n
   inspect: (target) => inspect(target),
   "inspect-key": (target) => inspectKey(target),
   replay: (target, rootsPath) => replay(target, rootsPath),
+  diff: (target) => diff(target),
 };
 
 const [command, target] = argv;

@@ -62,6 +62,28 @@ paths:
         "200": { description: The mandate and its ancestors, root first. }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /mandates/{id}/authority:
+    get:
+      tags: [mandates]
+      summary: What this chain confers, and what each hop changed
+      description: >
+        The effective scope once every hop is intersected, plus a hop-by-hop diff saying which fields
+        each delegation narrowed and by how much.
+
+        **Derived, never stored.** It is computed from mandates that are already signed, so it needs
+        no new field and no format version. A relying party holding an evidence pack computes the
+        identical diff offline with `warrant-verify diff` — this endpoint is a convenience, not the
+        source of the answer.
+
+        A hop marked `widened` claims more than the mandate above it holds. Issuance refuses to
+        create one, so seeing it here means the chain did not come from this service.
+      parameters: [{ $ref: "#/components/parameters/MandateId" }]
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200": { description: The chain, its effective scope, and one entry per hop. }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /mandates/{id}/delegations:
     post:
       tags: [mandates]

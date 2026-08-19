@@ -1,6 +1,13 @@
 import { Router } from "express";
 import { z } from "zod";
-import { actionRequestSchema, approvalSchema, moneySchema, scopeSchema } from "@warrant/core";
+import {
+  actionRequestSchema,
+  approvalSchema,
+  diffChain,
+  effectiveScope,
+  moneySchema,
+  scopeSchema,
+} from "@warrant/core";
 import { actorFor, scopeOf } from "../auth/tenancy.js";
 import { notFound } from "../http/errors.js";
 import { parseBody } from "../http/validate.js";
@@ -62,6 +69,26 @@ export function authorityRoutes(repositories: Repositories): Router {
     if (!mandate) throw notFound(`no mandate with id ${request.params.id}`);
     const chain = await repositories.mandates.findChain(mandate.id, scope);
     response.json({ mandate, chain });
+  });
+
+  router.get("/mandates/:id/authority", async (request, response) => {
+    const chain = await repositories.mandates.findChain(request.params.id, scopeOf(request));
+    if (!chain || chain.length === 0) {
+      throw notFound(`no mandate chain could be resolved for ${request.params.id}`);
+    }
+
+    // Derived entirely from mandates that are already signed. A relying party holding an evidence
+    // pack computes the same thing offline with `warrant-verify diff`, without asking this service.
+    response.json({
+      chain: chain.map((mandate) => ({
+        id: mandate.id,
+        depth: mandate.depth,
+        issuer: mandate.issuer.name,
+        subject: mandate.subject.name,
+      })),
+      effectiveScope: effectiveScope(chain.map((mandate) => mandate.scope)),
+      hops: diffChain(chain),
+    });
   });
 
   router.post("/mandates/:id/delegations", async (request, response) => {
