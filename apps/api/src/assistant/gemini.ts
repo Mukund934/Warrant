@@ -14,7 +14,17 @@ import type { LLMProvider, LLMReply, LLMRequest, LLMToolCall, LLMTurn } from "./
  * The cost is this file — one request shape, one response shape, both stable and both small.
  */
 
-const DEFAULT_MODEL = "gemini-2.0-flash";
+/**
+ * Chosen against the key's own model list rather than assumed, because assuming was wrong twice: the
+ * obvious default `gemini-2.0-flash` is retired and answers 404, and the newest flash exhausted a
+ * free-tier daily quota during one afternoon of testing.
+ *
+ * A demonstration that answers 503 because its default model ran out of quota looks broken in
+ * exactly the moment it is being watched, so the default is the model that was actually observed
+ * doing the work within a free key's limits — selecting the right tool, citing the pack it read, and
+ * refusing what it must. A deployment with paid quota sets `GEMINI_MODEL` and changes no code.
+ */
+const DEFAULT_MODEL = "gemini-3.1-flash-lite";
 const DEFAULT_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta";
 const DEFAULT_TIMEOUT_MS = 30_000;
 
@@ -31,6 +41,13 @@ interface GeminiPart {
   text?: string;
   functionCall?: { name?: unknown; args?: unknown };
   functionResponse?: { name: string; response: { result: unknown } };
+  /**
+   * Opaque, and load-bearing. Gemini 3 attaches it to a `functionCall` and rejects the next request
+   * with `Function call is missing a thought_signature` if the call comes back without it. That
+   * failure only appears once a tool result is handed back, which is why it survived a suite of
+   * transport tests and was caught by the first real call instead.
+   */
+  thoughtSignature?: string;
 }
 
 interface GeminiContent {
@@ -56,7 +73,10 @@ function contentsFrom(turns: LLMTurn[]): GeminiContent[] {
     const parts: GeminiPart[] = [];
     if (turn.text) parts.push({ text: turn.text });
     for (const call of turn.toolCalls ?? []) {
-      parts.push({ functionCall: { name: call.name, args: call.arguments } });
+      parts.push({
+        functionCall: { name: call.name, args: call.arguments },
+        ...(call.signature ? { thoughtSignature: call.signature } : {}),
+      });
     }
     // A turn with no parts at all is rejected by the API, so an empty model turn keeps a marker.
     return { role: "model", parts: parts.length > 0 ? parts : [{ text: "" }] };
@@ -96,8 +116,13 @@ function replyFrom(body: unknown): LLMReply {
       if (typeof name !== "string" || name.length === 0) {
         throw new ProviderProtocolError("the provider asked for a tool with no name");
       }
+      const signature = typeof part.thoughtSignature === "string" ? part.thoughtSignature : undefined;
       // `args` stays `unknown`. It is validated against a schema before anything runs.
-      toolCalls.push({ name, arguments: part.functionCall.args ?? {} });
+      toolCalls.push({
+        name,
+        arguments: part.functionCall.args ?? {},
+        ...(signature ? { signature } : {}),
+      });
     }
   }
 
@@ -122,10 +147,16 @@ export function geminiProvider(options: GeminiOptions): LLMProvider {
         ...(request.tools.length > 0
           ? {
               tools: [{ functionDeclarations: request.tools }],
-              // The model may only ask for tools that were declared. It is a convenience rather than
-              // a control — the registry refuses an undeclared name anyway — but a request the
-              // application would reject is better not made.
-              toolConfig: { functionCallingConfig: { mode: "AUTO" } },
+              // `NONE` keeps the declarations in the request while forbidding a call, which is what
+              // the last round needs: a conversation that already contains a `functionCall` is only
+              // valid while the tools it names are still declared.
+              //
+              // The mode is a convenience rather than a control — the registry refuses an undeclared
+              // name and the loop refuses any call it did not permit — but a request the application
+              // would reject is better not made.
+              toolConfig: {
+                functionCallingConfig: { mode: request.allowToolCalls === false ? "NONE" : "AUTO" },
+              },
             }
           : {}),
         generationConfig: { temperature: 0.2, maxOutputTokens: 2048 },

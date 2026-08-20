@@ -99,6 +99,18 @@ const WRITE_METHODS = [
   "claim",
 ];
 
+/**
+ * Source with comments removed, so a guard checks what runs rather than what is explained.
+ *
+ * A line comment is only stripped where `//` is not preceded by a colon. Without that, the scheme in
+ * `"https://generativelanguage.googleapis.com"` reads as the start of a comment and the rest of the
+ * line disappears — which would blind the vendor check to the one thing it exists to find.
+ */
+const codeOf = (source: string): string =>
+  source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
+
+const VENDOR = /googleapis|x-goog|generativelanguage|gemini/i;
+
 const importedNames = (source: string): string[] =>
   [...source.matchAll(/import\s+(?:type\s+)?\{([^}]+)\}/g)]
     .flatMap((match) => match[1]!.split(","))
@@ -139,9 +151,9 @@ describe("the assistant cannot reach anything that writes", () => {
   it("never names a signer or a private key", () => {
     const offenders: string[] = [];
     for (const file of SOURCES) {
+      // Comments are stripped first, so a file may still *explain* that it holds no keys.
+      const code = codeOf(file.source);
       for (const secret of KEY_MATERIAL) {
-        // Comments are stripped first, so a file may still *explain* that it holds no keys.
-        const code = file.source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
         if (code.includes(secret)) offenders.push(`${file.name} mentions ${secret}`);
       }
     }
@@ -151,7 +163,7 @@ describe("the assistant cannot reach anything that writes", () => {
   it("calls no repository method that writes", () => {
     const offenders: string[] = [];
     for (const file of SOURCES) {
-      const code = file.source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+      const code = codeOf(file.source);
       for (const method of WRITE_METHODS) {
         // Only as a call on something — `repositories.evidence.save(...)`, `.append(...)`.
         if (new RegExp(`\\.${method}\\s*\\(`).test(code)) {
@@ -170,15 +182,28 @@ describe("the assistant cannot reach anything that writes", () => {
 });
 
 describe("the provider stays inside its own file", () => {
-  it("mentions no vendor outside the provider implementation", () => {
+  it("mentions no vendor in code outside the provider implementation", () => {
     const offenders: string[] = [];
     for (const file of SOURCES) {
       if (file.name === "assistant/gemini.ts") continue;
-      if (/googleapis|x-goog|generativelanguage|gemini/i.test(file.source)) {
-        offenders.push(`${file.name} names the provider`);
+      // Comments are stripped first, on the same principle as the key-material check above. What
+      // must not leak upwards is vendor *behaviour*; prose explaining why a neutral field exists -
+      // "Gemini 3 calls this a thought signature" - is the documentation that keeps the next person
+      // from deleting it. A guard that forbids something reasonable is one somebody later removes.
+      if (VENDOR.test(codeOf(file.source))) {
+        offenders.push(`${file.name} names the provider in code`);
       }
     }
     expect(offenders).toEqual([]);
+  });
+
+  it("would still notice vendor behaviour leaking upwards", () => {
+    // The stripping must not turn this check into a no-op, and the URL case is the one that would:
+    // a naive line-comment strip eats everything after the `//` in a scheme.
+    expect(VENDOR.test(codeOf('const url = "https://generativelanguage.googleapis.com";'))).toBe(true);
+    expect(VENDOR.test(codeOf('headers: { "x-goog-api-key": key }'))).toBe(true);
+    expect(VENDOR.test(codeOf("// Gemini 3 calls it a thought signature."))).toBe(false);
+    expect(VENDOR.test(codeOf("/* Gemini attaches a signature. */"))).toBe(false);
   });
 
   it("adds no provider package to the workspace at all", async () => {

@@ -549,7 +549,7 @@ describe("the loop terminates whatever the model does", () => {
     expect(insatiable.requests).toHaveLength(3);
   });
 
-  it("offers no tools on the final round, so answering is the only option left", async () => {
+  it("forbids tool calls on the final round, so answering is the only option left", async () => {
     const stubborn = stubProvider([
       asks(call("searchEvidence", {})),
       asks(call("searchEvidence", {})),
@@ -561,8 +561,28 @@ describe("the loop terminates whatever the model does", () => {
     const answered = await ask(app, owner, "what happened?").expect(200);
 
     expect(answered.body.answer).toMatch(/two payments/i);
-    expect(stubborn.requests[0]!.tools).toHaveLength(7);
-    expect(stubborn.requests[2]!.tools).toEqual([]);
+    expect(stubborn.requests[0]!.allowToolCalls).toBe(true);
+    expect(stubborn.requests[2]!.allowToolCalls).toBe(false);
+
+    // Still *declared* on the final round, and that is deliberate: the conversation by then contains
+    // a tool call, and a request that no longer describes the tools it refers to is one a provider
+    // is entitled to reject - and does.
+    expect(stubborn.requests[2]!.tools).toHaveLength(7);
+  });
+
+  it("forbids them the same way once the tool budget is spent", async () => {
+    const greedy = stubProvider([
+      asks(call("searchEvidence", {}), call("searchEvidence", {})),
+      says("that is all"),
+    ]);
+    const app = boot(greedy, { maxRounds: 4, maxToolCalls: 2 });
+    const owner = await enrol(app, "user_priya", "Meridian Technologies");
+
+    await ask(app, owner, "everything please").expect(200);
+
+    expect(greedy.requests[0]!.allowToolCalls).toBe(true);
+    expect(greedy.requests[1]!.allowToolCalls).toBe(false);
+    expect(greedy.requests[1]!.tools).toHaveLength(7);
   });
 
   it("spends a tool budget and then refuses further calls", async () => {

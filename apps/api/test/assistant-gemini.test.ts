@@ -142,6 +142,29 @@ describe("the Gemini transport", () => {
     expect(bodyOf(calls[1]!).tools).toBeUndefined();
   });
 
+  // "may not call one" and "there are none" are different states. Conflating them breaks the final
+  // round, because a conversation that already contains a tool call needs the declarations to stay.
+  it("forbids calling without withdrawing the declarations", async () => {
+    const { fetch: transport, calls } = transportReturning(answering("hello"));
+    const provider = geminiProvider({ apiKey: "k", fetch: transport });
+    const tools = [{ name: "getDecision", description: "read one", parameters: { type: "object" } }];
+
+    await provider.complete({ ...REQUEST, tools, allowToolCalls: false });
+    await provider.complete({ ...REQUEST, tools, allowToolCalls: true });
+    await provider.complete({ ...REQUEST, tools });
+
+    const modeOf = (call: Captured) =>
+      (bodyOf(call).toolConfig as { functionCallingConfig: { mode: string } }).functionCallingConfig
+        .mode;
+
+    expect(modeOf(calls[0]!)).toBe("NONE");
+    expect((bodyOf(calls[0]!).tools as unknown[])).toHaveLength(1);
+
+    expect(modeOf(calls[1]!)).toBe("AUTO");
+    // Absent means allowed: only an explicit `false` forbids.
+    expect(modeOf(calls[2]!)).toBe("AUTO");
+  });
+
   it("reads a tool call out of the answer, arguments untouched", async () => {
     const { fetch: transport } = transportReturning({
       candidates: [
@@ -185,6 +208,105 @@ describe("the Gemini transport", () => {
     expect(provider.model).toBe("gemini-3-pro");
     await provider.complete(REQUEST);
     expect(calls[0]!.url).toBe("https://example.test/v1/models/gemini-3-pro:generateContent");
+  });
+});
+
+/**
+ * Gemini 3 attaches an opaque `thoughtSignature` to a function call and refuses the next request if
+ * the call is replayed without it. Nothing in a single request/response exchange reveals that, which
+ * is exactly why it was found by a real call rather than by any of the tests above — the failure only
+ * appears on the turn *after* a tool result goes back.
+ *
+ * These lock the round trip in, so it is a caught regression rather than a rediscovery.
+ */
+describe("the Gemini transport round-trips the provider's own state", () => {
+  it("reads a thought signature off a tool call", async () => {
+    const { fetch: transport } = transportReturning({
+      candidates: [
+        {
+          content: {
+            parts: [
+              {
+                functionCall: { name: "searchEvidence", args: { verdict: "BLOCK" } },
+                thoughtSignature: "opaque-token-abc",
+              },
+            ],
+          },
+        },
+      ],
+    });
+    const provider = geminiProvider({ apiKey: "k", fetch: transport });
+
+    const reply = await provider.complete(REQUEST);
+
+    expect(reply.toolCalls).toEqual([
+      { name: "searchEvidence", arguments: { verdict: "BLOCK" }, signature: "opaque-token-abc" },
+    ]);
+  });
+
+  it("hands it back verbatim when the call is replayed", async () => {
+    const { fetch: transport, calls } = transportReturning(answering("done"));
+    const provider = geminiProvider({ apiKey: "k", fetch: transport });
+
+    await provider.complete({
+      system: "s",
+      tools: [],
+      turns: [
+        { role: "user", text: "why?" },
+        {
+          role: "model",
+          toolCalls: [
+            { name: "getDecision", arguments: { packId: "pack_1" }, signature: "opaque-token-abc" },
+          ],
+        },
+        { role: "tool", name: "getDecision", result: { ok: true } },
+      ],
+    });
+
+    const contents = bodyOf(calls[0]!).contents as { role: string; parts: unknown[] }[];
+    expect(contents[1]!.parts).toEqual([
+      {
+        functionCall: { name: "getDecision", args: { packId: "pack_1" } },
+        thoughtSignature: "opaque-token-abc",
+      },
+    ]);
+  });
+
+  it("sends no signature field when the provider gave none", async () => {
+    const { fetch: transport, calls } = transportReturning(answering("done"));
+    const provider = geminiProvider({ apiKey: "k", fetch: transport });
+
+    await provider.complete({
+      system: "s",
+      tools: [],
+      turns: [{ role: "model", toolCalls: [{ name: "getDecision", arguments: {} }] }],
+    });
+
+    const contents = bodyOf(calls[0]!).contents as { parts: unknown[] }[];
+    expect(contents[0]!.parts).toEqual([{ functionCall: { name: "getDecision", args: {} } }]);
+  });
+
+  it("keeps the signature out of what a caller ever sees", async () => {
+    // It is the provider's state. It is round-tripped, never interpreted, and never surfaced.
+    const { fetch: transport } = transportReturning({
+      candidates: [
+        {
+          content: {
+            parts: [
+              { functionCall: { name: "searchEvidence", args: {} }, thoughtSignature: "secret-state" },
+            ],
+          },
+        },
+      ],
+    });
+    const provider = geminiProvider({ apiKey: "k", fetch: transport });
+
+    const reply = await provider.complete(REQUEST);
+
+    // Present on the wire object the session replays, absent from the invocation record the API
+    // returns - `ToolInvocation` carries only the name, the arguments and the outcome.
+    expect(reply.toolCalls[0]!.signature).toBe("secret-state");
+    expect(Object.keys(reply.toolCalls[0]!).sort()).toEqual(["arguments", "name", "signature"]);
   });
 });
 

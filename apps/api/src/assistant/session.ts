@@ -189,14 +189,23 @@ export async function ask(
   const tools = toolDefinitions();
 
   for (let round = 0; round < maxRounds; round += 1) {
-    // The last round is always run with no tools declared, so the loop cannot end without the model
-    // having had one turn in which answering in prose was its only option. Termination is a property
-    // of the loop rather than of the model's cooperation.
+    // The last round always forbids tool calls, so the loop cannot end without the model having had
+    // one turn in which answering in prose was its only option. Termination is a property of the
+    // loop rather than of the model's cooperation.
+    //
+    // The tools stay *declared* on that turn even though none may be called. Dropping them would
+    // leave a conversation referring to tools the request no longer describes, which a provider is
+    // entitled to reject — and does.
     const exhausted = toolCalls.length >= maxToolCalls;
     const lastRound = round === maxRounds - 1;
-    const offered = exhausted || lastRound ? [] : tools;
+    const callable = !exhausted && !lastRound;
 
-    const reply = await provider.complete({ system: SYSTEM_PROMPT, turns, tools: offered });
+    const reply = await provider.complete({
+      system: SYSTEM_PROMPT,
+      turns,
+      tools,
+      allowToolCalls: callable,
+    });
 
     if (reply.toolCalls.length === 0) {
       const answer = reply.text?.trim();
@@ -213,7 +222,7 @@ export async function ask(
       };
     }
 
-    if (offered.length === 0) {
+    if (!callable) {
       // Tools were not on the table and it asked for one anyway. Nothing runs.
       for (const call of reply.toolCalls) {
         refusals.push(`refused a call to ${call.name} after the tool budget was spent`);

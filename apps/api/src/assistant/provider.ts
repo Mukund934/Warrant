@@ -24,6 +24,16 @@ export interface LLMToolCall {
   name: string;
   /** Whatever the model produced. Unknown on purpose — nothing may trust it before validation. */
   arguments: unknown;
+  /**
+   * An opaque token the provider attached to this call and wants back, verbatim, when the call is
+   * replayed in a later turn. Gemini 3 calls it a thought signature and refuses a conversation that
+   * has dropped it.
+   *
+   * Deliberately typed as an opaque string rather than named after any vendor: it is round-tripped
+   * and never interpreted, never parsed, never logged and never returned to a caller. It is the
+   * provider's state, and the only correct thing to do with it is hand it back unchanged.
+   */
+  signature?: string;
 }
 
 export type LLMTurn =
@@ -35,6 +45,16 @@ export interface LLMRequest {
   system: string;
   turns: LLMTurn[];
   tools: LLMToolDefinition[];
+  /**
+   * Whether the model may call a tool on this turn. Defaults to true.
+   *
+   * Separate from `tools` because "may not call one" and "there are none" are different states, and
+   * conflating them breaks the final round: once the conversation contains a tool call, the
+   * declarations have to stay present for the history to remain valid, even though nothing further
+   * may be called. A provider with no such concept can ignore this — the application refuses an
+   * unexpected call regardless, which is where the guarantee actually lives.
+   */
+  allowToolCalls?: boolean;
 }
 
 export interface LLMReply {
