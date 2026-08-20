@@ -4,6 +4,7 @@ import { scopeOf } from "../auth/tenancy.js";
 import { badRequest } from "../http/errors.js";
 import { parseBody } from "../http/validate.js";
 import { EVIDENCE_PAGE_LIMIT } from "../persistence/types.js";
+import { replayEvidence } from "../services/replay.js";
 import type { Repositories } from "../persistence/types.js";
 
 const isoDateTime = z
@@ -43,6 +44,10 @@ export function searchRoutes(repositories: Repositories): Router {
     }
 
     response.json(await repositories.evidence.search(query, scopeOf(request)));
+  });
+
+  router.get("/replays/:packId", async (request, response) => {
+    response.json(await replayEvidence(request.params.packId, repositories, scopeOf(request)));
   });
 
   return router;

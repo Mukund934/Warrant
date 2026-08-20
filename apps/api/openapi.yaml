@@ -583,6 +583,39 @@ paths:
         "400": { $ref: "#/components/responses/InvalidRequest" }
         "401": { $ref: "#/components/responses/Unauthenticated" }
 
+  /replays/{packId}:
+    get:
+      tags: [verification]
+      summary: Re-derive a stored decision, check by check
+      description: >
+        Re-runs the authority decision over a stored pack and puts each re-derived check beside the
+        one the decision recorded, so the two can be read line by line. `agrees` is false wherever
+        they differ.
+
+        Verified against the keys **this deployment publishes**, not the ones travelling inside the
+        pack, so a pack whose embedded roots were swapped does not verify against itself.
+
+        **This is the weakest form of verification there is** — the issuing service checking its own
+        evidence against its own keys — and the response says so in `limitations`. The claim worth
+        making is the other one: `warrant-verify replay <pack.json>` against keys obtained
+        independently, with this service switched off.
+
+        Replaying a **stored** pack is scoped to the caller's organisation. `POST /verify`, which
+        takes a pack in the body, stays open: a stranger may verify a pack they were handed.
+
+        A replay is a re-derivation of a decision already made. It carries `replayed: true`, has no
+        id and no proof, and is never storable as a decision.
+      parameters:
+        - name: packId
+          in: path
+          required: true
+          schema: { type: string }
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200": { description: The recorded decision, the re-derived one, and every check side by side. }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /evidence/{id}:
     get:
       tags: [verification]

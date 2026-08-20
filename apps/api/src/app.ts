@@ -19,7 +19,7 @@ export const AUTHORITY_PATHS = ["/v1/mandates", "/v1/actions", "/v1/checkpoint"]
 export const SIMULATION_PATHS = ["/v1/simulations", "/v1/reconstructions"];
 // Fetching one pack by its unguessable id stays open, because evidence is meant to be handed to a
 // relying party. Enumerating evidence is a different act and needs a tenant.
-export const SEARCH_PATHS = ["/v1/search"];
+export const SEARCH_PATHS = ["/v1/search", "/v1/replays"];
 export const DIRECTORY_PATHS = [
   "/v1/organisations",
   "/v1/agents",
