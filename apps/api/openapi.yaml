@@ -583,6 +583,33 @@ paths:
         "400": { $ref: "#/components/responses/InvalidRequest" }
         "401": { $ref: "#/components/responses/Unauthenticated" }
 
+  /statements:
+    post:
+      tags: [verification]
+      summary: A signed statement of what the controls did over a period
+      description: >
+        *During August, 37 attempted actions exceeded delegated authority and were refused* — as a
+        signed document rather than a dashboard reading. Counts by verdict, plus which control
+        actually fired on each refusal, taken from the decisions **as they were signed at the time**
+        and not recomputed.
+
+        **Signed, so it can be handed on and checked.** `verifyControlStatement` validates the
+        signature against a trust root and re-adds the totals; a statement whose figures were edited
+        fails on arithmetic even before the signature is considered.
+
+        **It carries its own basis.** The wording is inside the signed document, so the numbers
+        cannot be separated from what they mean: these are decisions *this deployment recorded*, and
+        the statement makes no claim about actions taken by systems that never presented a mandate.
+
+        If more decisions exist in the period than the statement read, `complete` is false and the
+        figures are stated as a floor rather than a total.
+      security: [{ bearerAuth: [] }]
+      responses:
+        "201": { description: The signed control statement. }
+        "400": { $ref: "#/components/responses/InvalidRequest" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /replays/{packId}:
     get:
       tags: [verification]

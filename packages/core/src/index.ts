@@ -13,6 +13,7 @@ export * from "./gate.js";
 export * from "./simulate.js";
 export * from "./ledger.js";
 export * from "./evidence.js";
+export * from "./statement.js";
 export * from "./verify.js";
 export * from "./transparency.js";
 export * from "./anchoring.js";

@@ -5,6 +5,8 @@ import { badRequest } from "../http/errors.js";
 import { parseBody } from "../http/validate.js";
 import { EVIDENCE_PAGE_LIMIT } from "../persistence/types.js";
 import { replayEvidence } from "../services/replay.js";
+import { issueControlStatement } from "../services/statements.js";
+import { actorFor } from "../auth/tenancy.js";
 import type { Repositories } from "../persistence/types.js";
 
 const isoDateTime = z
@@ -44,6 +46,18 @@ export function searchRoutes(repositories: Repositories): Router {
     }
 
     response.json(await repositories.evidence.search(query, scopeOf(request)));
+  });
+
+  const statementSchema = z.object({ from: isoDateTime, to: isoDateTime }).strict();
+
+  router.post("/statements", async (request, response) => {
+    const body = parseBody(statementSchema, request.body);
+    const statement = await issueControlStatement(
+      body,
+      repositories,
+      await actorFor(request, repositories),
+    );
+    response.status(201).json(statement);
   });
 
   router.get("/replays/:packId", async (request, response) => {
