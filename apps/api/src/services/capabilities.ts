@@ -1,4 +1,6 @@
+import { moneySchema } from "@warrant/core";
 import type { CapabilityResolution, Money, RiskLevel } from "@warrant/core";
+import { z } from "zod";
 import { notFound, unprocessable } from "../http/errors.js";
 import type {
   Capability,
@@ -31,23 +33,59 @@ export interface RegisterCapabilityInput {
   approvalAbove?: Money;
 }
 
-export async function registerCapability(
-  input: RegisterCapabilityInput,
-  repositories: Repositories,
-  organisationId: string,
-): Promise<Capability> {
+/**
+ * The shape of a capability, defined once.
+ *
+ * `POST /v1/capabilities` parses with this and so does the assistant's `draftPolicy`. Two schemas
+ * would drift, and the direction they would drift in is the dangerous one: a drafting tool looser
+ * than the endpoint it drafts for tells a person their proposal will be accepted, and is wrong.
+ *
+ * Strict, for the reason D42 records: a security input that is silently dropped is
+ * indistinguishable from one that was applied.
+ */
+export const capabilityInputSchema = z
+  .object({
+    id: z.string().min(3).max(120),
+    title: z.string().min(2).max(120),
+    description: z.string().min(2).max(480),
+    risk: z.enum(["low", "medium", "high", "critical"]),
+    amount: z.enum(["required", "optional", "forbidden"]),
+    currencies: z.array(z.enum(["INR", "USD", "EUR"])).min(1).optional(),
+    approvalAbove: moneySchema.optional(),
+  })
+  .strict();
+
+export interface CapabilityObjection {
+  code: string;
+  message: string;
+}
+
+/**
+ * Everything wrong with a proposed capability that can be known without reading the catalogue.
+ *
+ * Separated from `registerCapability` so the assistant's `draftPolicy` can hold a proposal to the
+ * same standard the real route applies, while touching no repository and writing nothing. Two copies
+ * of these rules would drift, and a drafting tool that validates more loosely than the endpoint it
+ * drafts for is worse than one that does not validate at all: it would promise that a proposal will
+ * be accepted, and be wrong.
+ */
+export function capabilityObjections(input: RegisterCapabilityInput): CapabilityObjection[] {
+  const objections: CapabilityObjection[] = [];
+
   if (!CAPABILITY_ID.test(input.id)) {
-    throw unprocessable(
-      "capability_id_rejected",
-      "a capability id is lower-case and qualified, like payment.execute, so that it reads the same in a mandate as it does in the catalogue",
-    );
+    objections.push({
+      code: "capability_id_rejected",
+      message:
+        "a capability id is lower-case and qualified, like payment.execute, so that it reads the same in a mandate as it does in the catalogue",
+    });
   }
 
   if (input.amount === "forbidden" && (input.currencies || input.approvalAbove)) {
-    throw unprocessable(
-      "capability_contradicts_itself",
-      "this capability is declared to move no money, so a currency list or an approval threshold would never apply",
-    );
+    objections.push({
+      code: "capability_contradicts_itself",
+      message:
+        "this capability is declared to move no money, so a currency list or an approval threshold would never apply",
+    });
   }
 
   if (
@@ -55,11 +93,22 @@ export async function registerCapability(
     input.currencies &&
     !input.currencies.includes(input.approvalAbove.currency)
   ) {
-    throw unprocessable(
-      "capability_contradicts_itself",
-      `the approval threshold is set in ${input.approvalAbove.currency}, which is not a currency this capability accepts`,
-    );
+    objections.push({
+      code: "capability_contradicts_itself",
+      message: `the approval threshold is set in ${input.approvalAbove.currency}, which is not a currency this capability accepts`,
+    });
   }
+
+  return objections;
+}
+
+export async function registerCapability(
+  input: RegisterCapabilityInput,
+  repositories: Repositories,
+  organisationId: string,
+): Promise<Capability> {
+  const objection = capabilityObjections(input)[0];
+  if (objection) throw unprocessable(objection.code, objection.message);
 
   const at = nowIso();
   const capability: Capability = {

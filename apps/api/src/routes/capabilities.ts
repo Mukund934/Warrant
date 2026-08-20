@@ -1,29 +1,15 @@
 import { Router } from "express";
-import { moneySchema } from "@warrant/core";
 import { z } from "zod";
 import { assertRole, scopeOf } from "../auth/tenancy.js";
 import { badRequest, notFound } from "../http/errors.js";
 import { parseBody } from "../http/validate.js";
 import type { Repositories } from "../persistence/types.js";
 import {
+  capabilityInputSchema,
   changeCapabilityStatus,
   registerCapability,
   setCatalogueEnforcement,
 } from "../services/capabilities.js";
-
-// Strict, for the reason D42 records: a security input that is silently dropped is indistinguishable
-// from one that was applied.
-const registerSchema = z
-  .object({
-    id: z.string().min(3).max(120),
-    title: z.string().min(2).max(120),
-    description: z.string().min(2).max(480),
-    risk: z.enum(["low", "medium", "high", "critical"]),
-    amount: z.enum(["required", "optional", "forbidden"]),
-    currencies: z.array(z.enum(["INR", "USD", "EUR"])).min(1).optional(),
-    approvalAbove: moneySchema.optional(),
-  })
-  .strict();
 
 const statusSchema = z.object({ status: z.enum(["active", "deprecated", "withdrawn"]) }).strict();
 
@@ -44,7 +30,7 @@ export function capabilityRoutes(repositories: Repositories): Router {
 
   router.post("/capabilities", async (request, response) => {
     assertRole(request, "admin");
-    const body = parseBody(registerSchema, request.body);
+    const body = parseBody(capabilityInputSchema, request.body);
     const organisationId = organisationOf(request.tenant?.organisationId);
 
     response.status(201).json(await registerCapability(body, repositories, organisationId));
