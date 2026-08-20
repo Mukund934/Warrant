@@ -106,17 +106,21 @@ node packages/verifier/dist/cli.js conformance ./conformance`}</Code>
         <section>
           <h2 className="mb-4 text-[19px] font-semibold tracking-tight">Where trust roots come from today</h2>
           <p className="text-[14.5px] leading-relaxed text-text-muted">
-            This is the honest gap in the current build. Trust roots are published at{" "}
-            <Mono>/api/trust-roots</Mono> and shipped with the demonstration packs, which means a
-            counterparty either fetches them from us or receives them by hand.{" "}
+            Trust roots are published at <Mono>/api/trust-roots</Mono> and as a JWKS at{" "}
+            <Mono>/.well-known/jwks.json</Mono>, and every key carries a signing lifecycle, so
+            retiring one never invalidates the evidence it already signed. Each organisation
+            publishes its own keys, and only its own.{" "}
             <strong className="text-text">
-              There is no key discovery, no JWKS endpoint and no key rotation yet.
+              What is still missing is the pointer: no <Mono>jku</Mono> is written into the protected
+              header.
             </strong>
           </p>
           <p className="mt-4 text-[14.5px] leading-relaxed text-text-muted">
-            Until that exists, cross-organisation verification works but depends on an out-of-band
-            step. It is the next thing being built, and it is tracked openly rather than glossed over
-            on the <Link href="/security" className="text-seal hover:underline">security page</Link>.
+            So cross-organisation verification works, and depends on one out-of-band step: the
+            counterparty has to be told where the key set lives, rather than reading it out of the
+            signature. That is deferred until the project owns a domain, because a URL signed into
+            every protected header is permanent. It is tracked openly rather than glossed over on the{" "}
+            <Link href="/security" className="text-seal hover:underline">security page</Link>.
           </p>
         </section>
 

@@ -112,17 +112,17 @@ const STATE_STYLE = {
 const PROTOTYPE_VS_PRODUCTION = [
   {
     area: "Signing keys",
-    prototype: "Demonstration keypairs committed to the repository. Anyone can issue mandates under them.",
+    prototype: "Demonstration keypairs are committed to this repository, private halves included, so every result here can be reproduced and forged. An organisation created through the API gets its own keys, which are not published.",
     production: "Per-tenant keys in an HSM or KMS, rotated, with the private half never leaving it.",
   },
   {
     area: "Storage",
-    prototype: "This deployment holds nothing between restarts. Postgres implementations of all four repositories exist and are tested against a real database, but no connection string is set here.",
+    prototype: "This deployment runs on PostgreSQL and reports it on /health. Every repository has an in-memory implementation too, and the service picks between them at startup depending on whether DATABASE_URL is set — so a fresh clone still runs with no credentials at all.",
     production: "Postgres as the system of record, object storage for record blobs, an analytics store for decision volume.",
   },
   {
     area: "Replay protection",
-    prototype: "Nonce novelty is tracked per process here. The store declares its own scope and the service reports it on /health, so the boundary is inspectable rather than assumed.",
+    prototype: "Deployment-scoped here, because this deployment has a database: a nonce is claimed with one insert against a unique constraint. The store declares its own scope and the service reports it on /health, so the boundary is inspectable rather than assumed.",
     production: "The Postgres store claims a nonce with one insert against a unique constraint, so two instances racing the same nonce cannot both accept it. It declares itself deployment-scoped.",
   },
   {
@@ -132,7 +132,7 @@ const PROTOTYPE_VS_PRODUCTION = [
   },
   {
     area: "Trust distribution",
-    prototype: "Keys are downloadable from this site and embedded in packs for convenience.",
+    prototype: "Published as a JWKS and embedded in packs, with a signing lifecycle so a retired key keeps verifying old evidence. Each organisation publishes its own principal, gate and recorder keys — one organisation's evidence does not verify under another's. No jku yet, so the location is still out of band.",
     production: "Published key sets with rotation, discovery, and a revocation path for the keys themselves.",
   },
   {
@@ -368,7 +368,7 @@ your browser  ────────────┘   packages/core   mandates
 {`git clone https://github.com/Mukund934/Warrant
 cd Warrant && npm install
 
-npm test                    # 107 tests: scope algebra, gate, tampering, forgery, API
+npm test                    # 748 tests: scope algebra, gate, tampering, forgery, API
 npm run export:packs        # writes every scenario to evidence/
 
 node packages/verifier/dist/cli.js \\

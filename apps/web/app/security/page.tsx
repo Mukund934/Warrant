@@ -26,12 +26,16 @@ const LIMITS = [
     body: "A verifier is offline by design and therefore cannot know whether a mandate was revoked after the snapshot it was given. Every verification report states the moment its revocation data was published.",
   },
   {
-    title: "There is no key discovery yet",
-    body: "Trust roots are supplied to the verifier, either published here or embedded in the pack. Keys embedded in a pack prove internal consistency only — they cannot prove the pack came from the organisation it names. The verifier says so explicitly when it is given them.",
+    title: "A key set still has to be fetched out of band",
+    body: "Keys are published as a JWKS and carry a signing lifecycle, so retiring one never invalidates the evidence it already signed. What is missing is the pointer: no jku is written into the protected header, so a counterparty obtains the key set from a URL it was given rather than one the signature names. Keys embedded in a pack prove internal consistency only — they cannot prove the pack came from the organisation it names, and the verifier says so explicitly when it is given them.",
   },
   {
-    title: "The API has no authentication",
-    body: "Anyone can issue mandates against the demonstration service under the published demonstration keys. That is acceptable for a public demonstration and would be disqualifying for a control plane. It is on the roadmap, not shipped.",
+    title: "This deployment accepts unauthenticated callers, deliberately",
+    body: "The API verifies ES256 access tokens against the identity provider's published key set, and a deployment declares whether it requires them — it reports which on /health. This one declares itself open so the demonstration stays reachable, which means anyone can issue mandates under the published demonstration keys. That is a stated position rather than an absence, and it is why the demonstration keys are published in the first place.",
+  },
+  {
+    title: "The service holds the signing keys",
+    body: "Each organisation gets its own principal, gate and recorder keys, and the service holds the private halves. Evidence says so rather than leaving it to be assumed: the accountable-person block records keyCustody as \"service\", and a verifier reports it. A deployment that needed the person to hold their own key would put it in an HSM and say so in the same field.",
   },
 ];
 
