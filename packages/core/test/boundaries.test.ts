@@ -114,6 +114,92 @@ describe.each(SEALED)("packages/%s is sealed against the application", (name) =>
   });
 });
 
+interface Lockfile {
+  packages: Record<string, { dependencies?: Record<string, string> }>;
+}
+
+const LOCKFILE = JSON.parse(
+  await readFile(new URL("../../../package-lock.json", import.meta.url), "utf8"),
+) as Lockfile;
+
+// A workspace sibling is a directory in this repository, not an installed package.
+const WORKSPACES: Record<string, string> = {
+  "@warrant/core": "packages/core",
+  "@warrant/verifier": "packages/verifier",
+};
+
+/** npm's own resolution: the nearest `node_modules`, then upwards to the root. */
+function resolveFrom(from: string, dependency: string): string | undefined {
+  const segments = from === "" ? [] : from.split("/");
+  for (let depth = segments.length; depth >= 0; depth -= 1) {
+    const prefix = segments.slice(0, depth).join("/");
+    const candidate = `${prefix ? `${prefix}/` : ""}node_modules/${dependency}`;
+    if (LOCKFILE.packages[candidate]) return candidate;
+  }
+  return undefined;
+}
+
+/**
+ * Declaring no provider is necessary and not sufficient.
+ *
+ * A package pulled in by something else is still installed, still resolvable, and still one
+ * `import` away from the verification path — and `package.json` would say nothing about it. This
+ * walks the lockfile instead, from each sealed package through every dependency it can reach.
+ */
+describe.each(SEALED)("packages/%s reaches no provider transitively", (name) => {
+  it("resolves a real graph rather than reporting an empty one", () => {
+    expect(LOCKFILE.packages[`packages/${name}`]).toBeDefined();
+    expect(Object.keys(LOCKFILE.packages).length).toBeGreaterThan(50);
+  });
+
+  it("pulls in nothing that is a model provider", () => {
+    const seen = new Set<string>();
+    const queue = [`packages/${name}`];
+    const reached: string[] = [];
+
+    while (queue.length > 0) {
+      const current = queue.shift()!;
+      if (seen.has(current)) continue;
+      seen.add(current);
+
+      for (const dependency of Object.keys(LOCKFILE.packages[current]?.dependencies ?? {})) {
+        reached.push(dependency);
+        const next = WORKSPACES[dependency] ?? resolveFrom(current, dependency);
+        if (next) queue.push(next);
+      }
+    }
+
+    // The walk must find something, or "no provider" would hold because nothing was checked.
+    expect(reached).toContain("jose");
+
+    const offenders = reached.filter((dependency) =>
+      PROVIDERS.some((provider) => dependency.includes(provider)),
+    );
+    expect(offenders).toEqual([]);
+  });
+});
+
+/**
+ * The strongest available form of the §13a outage invariant: not "the verifier does not import a
+ * provider" but "there is no provider package here to import". Gemini is reached over its REST API
+ * with `fetch`, from one file in the application, so this holds for the whole tree.
+ */
+describe("no provider package is installed anywhere in the workspace", () => {
+  it("has none in the lockfile", () => {
+    const marker = "node_modules/";
+    const installed = Object.keys(LOCKFILE.packages)
+      .filter((key) => key.includes(marker))
+      .map((key) => key.slice(key.lastIndexOf(marker) + marker.length));
+
+    expect(installed.length).toBeGreaterThan(50);
+
+    const offenders = installed.filter((dependency) =>
+      PROVIDERS.some((provider) => dependency.includes(provider)),
+    );
+    expect(offenders).toEqual([]);
+  });
+});
+
 describe("the guard itself is not vacuous", () => {
   it("would notice a provider import if one appeared", () => {
     const pretend = 'import { GoogleGenerativeAI } from "@google/generative-ai";';
