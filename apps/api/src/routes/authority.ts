@@ -13,6 +13,7 @@ import { notFound } from "../http/errors.js";
 import { parseBody } from "../http/validate.js";
 import type { Repositories } from "../persistence/types.js";
 import { delegate, issueRoot, revoke } from "../services/issuance.js";
+import { timelineFor } from "../services/timeline.js";
 import {
   simulateAction,
   submitAction,
@@ -94,6 +95,15 @@ export function authorityRoutes(repositories: Repositories): Router {
       effectiveScope: effectiveScope(chain.map((mandate) => mandate.scope)),
       hops: diffChain(chain),
     });
+  });
+
+  router.get("/mandates/:id/timeline", async (request, response) => {
+    const timeline = await timelineFor(
+      request.params.id,
+      repositories,
+      await actorFor(request, repositories),
+    );
+    response.json(timeline);
   });
 
   router.post("/mandates/:id/delegations", async (request, response) => {

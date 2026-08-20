@@ -10,6 +10,7 @@ import {
   PostgresDirectoryRepository,
   PostgresEvidenceRepository,
   PostgresLedgerRepository,
+  PostgresMandateRepository,
   PostgresNonceStore,
   createPostgresRepositories,
   pingDatabase,
@@ -1039,5 +1040,83 @@ withDatabase("evidence search in Postgres", () => {
     const empty = await evidence().search({ limit: 50 }, `${orgs.first}-nobody`);
     expect(empty.results).toEqual([]);
     expect(empty.nextCursor).toBeUndefined();
+  }, 60_000);
+});
+
+withDatabase("walking a mandate tree in Postgres", () => {
+  const mandates = () => new PostgresMandateRepository(main.admin);
+  const ledger = () => new PostgresLedgerRepository(main.admin);
+  const orgs = { ours: "", theirs: "" };
+  let parent: Mandate;
+  let child: Mandate;
+  let stray: Mandate;
+
+  beforeAll(async () => {
+    if (!databaseAvailable) return;
+    const stamp = crypto.randomUUID().slice(0, 8);
+    orgs.ours = `org:tree-a-${stamp}`;
+    orgs.theirs = `org:tree-b-${stamp}`;
+
+    for (const id of [orgs.ours, orgs.theirs]) {
+      await main.admin.query(
+        "insert into organisations (id, name, jurisdiction) values ($1, $2, 'IN-MH')",
+        [id, `Tree ${id.slice(-8)}`],
+      );
+    }
+
+    const chain = (await demoScenarios())
+      .map((scenario) => scenario.pack.authority.chain)
+      .find((candidate) => candidate.length > 1)!;
+
+    const rename = (mandate: Mandate, id: string, organisationId: string, parentId?: string) => ({
+      ...mandate,
+      id,
+      organisation: { ...mandate.organisation, id: organisationId },
+      ...(parentId ? { parent: { id: parentId, digest: mandate.parent!.digest } } : {}),
+    });
+
+    parent = rename(chain[0]!, `mnd_tree_root_${stamp}`, orgs.ours);
+    child = rename(chain[1]!, `mnd_tree_child_${stamp}`, orgs.ours, parent.id);
+    // A mandate whose parent belongs to someone else cannot be created through the API, because a
+    // delegation inherits its parent's organisation. Written directly, it is what the recursive
+    // query has to refuse to walk into.
+    stray = rename(chain[1]!, `mnd_tree_stray_${stamp}`, orgs.theirs, parent.id);
+
+    const store = mandates();
+    for (const mandate of [parent, child, stray]) await store.save(mandate);
+  }, 120_000);
+
+  it("returns the mandate and everything beneath it, nearest first", async () => {
+    const found = await mandates().descendants(parent.id, orgs.ours);
+    expect(found.map((mandate) => mandate.id)).toEqual([parent.id, child.id]);
+  }, 60_000);
+
+  it("will not walk into a child recorded under another organisation", async () => {
+    const found = await mandates().descendants(parent.id, orgs.ours);
+    expect(found.map((mandate) => mandate.id)).not.toContain(stray.id);
+  }, 60_000);
+
+  it("returns nothing at all for a tree the caller cannot see", async () => {
+    expect(await mandates().descendants(parent.id, orgs.theirs)).toEqual([]);
+  }, 60_000);
+
+  it("returns just the leaf when asked about one, not its ancestors", async () => {
+    const found = await mandates().descendants(child.id, orgs.ours);
+    expect(found.map((mandate) => mandate.id)).toEqual([child.id]);
+  }, 60_000);
+
+  it("reads ledger entries for named refs only, in sequence order", async () => {
+    const store = ledger();
+    const first = await store.append(entry(`tree-a-${crypto.randomUUID().slice(0, 8)}`));
+    const ignored = await store.append(entry(`tree-b-${crypto.randomUUID().slice(0, 8)}`));
+    const second = await store.append(entry(`tree-c-${crypto.randomUUID().slice(0, 8)}`));
+
+    const found = await store.entriesFor([second.ref, first.ref]);
+    expect(found.map((row) => row.ref)).toEqual([first.ref, second.ref]);
+    expect(found.map((row) => row.ref)).not.toContain(ignored.ref);
+  }, 60_000);
+
+  it("asks the database nothing when there are no refs", async () => {
+    expect(await ledger().entriesFor([])).toEqual([]);
   }, 60_000);
 });

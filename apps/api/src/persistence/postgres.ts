@@ -197,6 +197,15 @@ export class PostgresLedgerRepository implements LedgerRepository {
     return Promise.all(rows.rows.map(ledgerEntryFrom));
   }
 
+  async entriesFor(refs: string[]): Promise<LedgerEntry[]> {
+    if (refs.length === 0) return [];
+    const rows = await this.pool.query<LedgerRow>(
+      `select ${LEDGER_COLUMNS} from ledger_entries where ref = any($1::text[]) order by seq`,
+      [refs],
+    );
+    return Promise.all(rows.rows.map(ledgerEntryFrom));
+  }
+
   async head(): Promise<LedgerEntry | undefined> {
     const rows = await this.pool.query<LedgerRow>(
       `select ${LEDGER_COLUMNS} from ledger_entries order by seq desc limit 1`,
@@ -249,6 +258,24 @@ export class PostgresMandateRepository implements MandateRepository {
       [id, scope],
     );
     return rows.rows[0]?.document;
+  }
+
+  async descendants(id: string, scope: TenantScope): Promise<Mandate[]> {
+    const rows = await this.pool.query<{ document: Mandate }>(
+      `with recursive tree as (
+         select id, document, 0 as generation from mandates
+          where id = $1 and ($2::text is null or organisation_id = $2)
+         union all
+         select child.id, child.document, tree.generation + 1
+           from mandates child
+           join tree on child.parent_id = tree.id
+          where ($2::text is null or child.organisation_id = $2)
+            and tree.generation < 32
+       )
+       select document from tree order by generation, id`,
+      [id, scope],
+    );
+    return rows.rows.map((row) => row.document);
   }
 
   async findChain(leafId: string, scope: TenantScope): Promise<Mandate[] | undefined> {

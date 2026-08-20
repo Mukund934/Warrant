@@ -84,6 +84,33 @@ paths:
         "401": { $ref: "#/components/responses/Unauthenticated" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /mandates/{id}/timeline:
+    get:
+      tags: [mandates]
+      summary: What happened to this authority, in order
+      description: >
+        An ordered account of this mandate and everything delegated beneath it: who delegated to
+        whom, which agents were registered or changed standing, what was requested, what was decided
+        and what was withdrawn.
+
+        **The ledger is one chain for the whole deployment** and carries no tenant column — splitting
+        it per organisation would fork the hash chain. So the timeline never filters ledger rows by
+        tenant. It resolves the mandate tree, its agents and its evidence through repositories that
+        *are* scoped, and asks the ledger only for those references. A caller therefore cannot see an
+        entry belonging to anyone else, because no such reference is ever produced.
+
+        **It is a filtered view, and says so.** Each entry's digest was re-derived when it was read,
+        but continuity across the full chain is not claimed here — a filtered set has gaps in `seq`
+        by construction. Verify a whole segment through an evidence pack instead.
+
+        Verdicts and reasons are copied from the stored decision. Nothing is recomputed.
+      parameters: [{ $ref: "#/components/parameters/MandateId" }]
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200": { description: The mandates covered, the ordered entries, and what the view covers. }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /mandates/{id}/delegations:
     post:
       tags: [mandates]

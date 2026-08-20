@@ -49,6 +49,8 @@ export interface MandateRepository {
   findChain(leafId: string, scope: TenantScope): Promise<Mandate[] | undefined>;
   revoke(record: RevocationRecord, scope: TenantScope): Promise<boolean>;
   revocations(scope: TenantScope): Promise<RevocationRecord[]>;
+  /** This mandate and everything delegated beneath it, nearest first. Empty if it is not visible. */
+  descendants(id: string, scope: TenantScope): Promise<Mandate[]>;
 }
 
 export interface EvidenceQuery {
@@ -145,6 +147,12 @@ export interface EvidenceRepository {
 export interface LedgerRepository {
   append(record: Omit<LedgerEntry, "seq" | "prevDigest" | "digest">): Promise<LedgerEntry>;
   entries(): Promise<LedgerEntry[]>;
+  /**
+   * The chain is deployment-wide and deliberately carries no tenant column — splitting it per
+   * organisation would fork the hash chain. So this takes refs the caller has already resolved
+   * through a scoped repository, and never a tenant of its own.
+   */
+  entriesFor(refs: string[]): Promise<LedgerEntry[]>;
   head(): Promise<LedgerEntry | undefined>;
   count(): Promise<number>;
 }

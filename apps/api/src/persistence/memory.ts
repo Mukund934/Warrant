@@ -65,6 +65,22 @@ export class InMemoryMandateRepository implements MandateRepository {
     return mandate && withinScope(mandate.organisation.id, scope) ? mandate : undefined;
   }
 
+  async descendants(id: string, scope: TenantScope): Promise<Mandate[]> {
+    const start = await this.findById(id, scope);
+    if (!start) return [];
+
+    const found: Mandate[] = [start];
+    for (let cursor = 0; cursor < found.length && found.length <= MAX_CHAIN_DEPTH * 8; cursor += 1) {
+      const parent = found[cursor]!;
+      for (const candidate of this.rows.values()) {
+        if (candidate.parent?.id !== parent.id) continue;
+        if (!withinScope(candidate.organisation.id, scope)) continue;
+        if (!found.some((seen) => seen.id === candidate.id)) found.push(candidate);
+      }
+    }
+    return found;
+  }
+
   async findChain(leafId: string, scope: TenantScope): Promise<Mandate[] | undefined> {
     const chain: Mandate[] = [];
     let cursor = await this.findById(leafId, scope);
@@ -151,6 +167,11 @@ export class InMemoryLedgerRepository implements LedgerRepository {
 
   async entries(): Promise<LedgerEntry[]> {
     return [...this.rows];
+  }
+
+  async entriesFor(refs: string[]): Promise<LedgerEntry[]> {
+    const wanted = new Set(refs);
+    return this.rows.filter((entry) => wanted.has(entry.ref)).sort((a, b) => a.seq - b.seq);
   }
 
   async head(): Promise<LedgerEntry | undefined> {
