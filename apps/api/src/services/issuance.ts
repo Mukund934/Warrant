@@ -214,6 +214,77 @@ export async function delegate(
   return mandate;
 }
 
+export interface ReissueInput extends IssueRootInput {
+  reason: string;
+}
+
+/**
+ * Issues a mandate in place of another, and withdraws the one it replaces.
+ *
+ * The two halves are deliberately separate facts. The successor carries `supersedes`, which is
+ * lineage and nothing else; the predecessor stops working because it is **revoked**, which is what
+ * has always stopped a mandate working and what every verifier already checks in the signed
+ * revocation snapshot.
+ *
+ * Keeping them apart is the whole compatibility argument (**D59**): a verifier that has never heard
+ * of supersession still refuses the old mandate, because it was told about the revocation rather
+ * than being expected to infer it from a field it cannot read.
+ *
+ * **Issue first, then revoke.** If the issue fails there is no gap; the old mandate is still good.
+ * The other order would leave an organisation briefly holding no valid authority at all.
+ */
+export async function reissue(
+  previousId: string,
+  input: ReissueInput,
+  repositories: Repositories,
+  actor: Actor = DEMONSTRATION_ACTOR,
+): Promise<{ mandate: Mandate; superseded: string }> {
+  const previous = await repositories.mandates.findById(previousId, actor.scope);
+  if (!previous) throw notFound(`no mandate with id ${previousId}`);
+
+  // Root-only, and not arbitrarily: a root mandate is signed by the liable principal, whose key this
+  // service holds. A delegation is signed by the agent holding it, whose key it generally does not —
+  // which is the same reason `delegate` refuses when it has no signer for the holder.
+  if (previous.depth !== 0) {
+    throw unprocessable(
+      "reissue_needs_a_root",
+      `mandate ${previousId} is a delegation at depth ${previous.depth}; delegate again from its parent instead, which the holder's own key must sign`,
+    );
+  }
+
+  const subject = input.agentId
+    ? await subjectAgentFor(repositories, input.agentId, actor.scope)
+    : apAgent;
+
+  await assertInsideHouseScope(input.scope, repositories, actor.organisation.id);
+
+  let mandate: Mandate;
+  try {
+    mandate = await issueRootMandate(
+      {
+        id: identifier("mnd"),
+        organisation: actor.organisation,
+        liablePrincipal: actor.liablePrincipal,
+        subject,
+        scope: input.scope,
+        maxDelegationDepth: input.maxDelegationDepth,
+        notBefore: input.notBefore,
+        expiresAt: input.expiresAt,
+        issuedAt: nowIso(),
+        supersedes: previous,
+      },
+      actor.keyring.principal,
+    );
+  } catch (error) {
+    throw unprocessable("mandate_rejected", (error as Error).message);
+  }
+
+  await record(mandate, repositories);
+  await revoke(previousId, input.reason, repositories, actor);
+
+  return { mandate, superseded: previousId };
+}
+
 export async function revoke(
   mandateId: string,
   reason: string,

@@ -135,6 +135,42 @@ paths:
             `delegation_would_widen`, naming the dimension that failed, for example
             `scope/per_action_limit_exceeded`.
 
+  /mandates/{id}/reissue:
+    post:
+      tags: [mandates]
+      summary: Issue a mandate in place of another, and withdraw the one it replaces
+      description: >
+        Reissuing is two signed facts rather than one. The successor carries `supersedes` — the id
+        and a digest of the exact document it replaces — and the predecessor is **revoked**.
+
+        **Supersession is lineage, never authority.** It records that one document replaced another
+        and says nothing about whether the replaced one still works. Revocation decides that, and
+        revocation already travels in the signed snapshot every verifier checks. Keeping the two
+        apart is what lets the field exist without a format version bump: a verifier that has never
+        heard of `supersedes` still refuses the old mandate, because it was *told* about the
+        withdrawal rather than expected to infer it from a field it cannot read.
+
+        `warrant/mandate/v0.1` is unchanged and the conformance vectors are unregenerated. The
+        digest commits to the whole predecessor, so the pointer cannot be re-aimed at a different
+        document sharing an id, and it is signed like every other field — removing it breaks the
+        signature.
+
+        **Issued first, withdrawn second.** A refused successor leaves the predecessor working
+        rather than leaving an organisation holding nothing valid.
+
+        **Root mandates only**, and not arbitrarily: a root is signed by the liable principal, whose
+        key this service holds. A delegation is signed by the agent holding it, so it is replaced by
+        delegating again from its parent.
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: "#/components/parameters/MandateId" }]
+      responses:
+        "201": { description: The successor mandate, and the id of the mandate it replaced. }
+        "400": { $ref: "#/components/responses/InvalidRequest" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/InsufficientRole" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { description: "`reissue_needs_a_root`, `outside_house_scope` or `mandate_rejected` — the predecessor is untouched." }
+
   /mandates/{id}/revocation:
     post:
       tags: [mandates]

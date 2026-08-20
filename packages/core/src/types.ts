@@ -100,6 +100,19 @@ export const mandateSchema = z.object({
   issuer: partySchema,
   subject: agentSchema,
   parent: z.object({ id: z.string().min(1), digest: digestString }).nullable(),
+  /**
+   * The mandate this one replaces, if it replaces one.
+   *
+   * **Lineage, never authority.** It says "this was issued in place of that", and it says nothing
+   * about whether that one still works — revocation decides that, and revocation already travels in
+   * the signed snapshot every verifier checks. Keeping supersession free of authority is what lets
+   * the field be added without a version bump: a verifier that has never heard of it ignores it and
+   * still reaches the same verdict, which would not be true of a field that voided something.
+   *
+   * The digest commits to the exact document replaced, so anyone holding the predecessor can check
+   * the pointer rather than take it on trust.
+   */
+  supersedes: z.object({ id: z.string().min(1), digest: digestString }).optional(),
   depth: z.number().int().nonnegative(),
   maxDelegationDepth: z.number().int().nonnegative(),
   scope: scopeSchema,

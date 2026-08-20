@@ -12,7 +12,7 @@ import { actorFor, scopeOf } from "../auth/tenancy.js";
 import { notFound } from "../http/errors.js";
 import { parseBody } from "../http/validate.js";
 import type { Repositories } from "../persistence/types.js";
-import { delegate, issueRoot, revoke } from "../services/issuance.js";
+import { delegate, issueRoot, reissue, revoke } from "../services/issuance.js";
 import { reconstruct } from "../services/reconstruction.js";
 import { resumePending } from "../services/pending.js";
 import { timelineFor } from "../services/timeline.js";
@@ -43,6 +43,10 @@ const delegateSchema = z.object({
 });
 
 const revokeSchema = z.object({
+  reason: z.string().min(1).max(240),
+});
+
+const reissueSchema = issueSchema.extend({
   reason: z.string().min(1).max(240),
 });
 
@@ -113,6 +117,13 @@ export function authorityRoutes(repositories: Repositories): Router {
     const actor = await actorFor(request, repositories);
     const mandate = await delegate(request.params.id, body, repositories, actor);
     response.status(201).json(mandate);
+  });
+
+  router.post("/mandates/:id/reissue", async (request, response) => {
+    const body = parseBody(reissueSchema, request.body);
+    const actor = await actorFor(request, repositories);
+    const outcome = await reissue(request.params.id, body, repositories, actor);
+    response.status(201).json(outcome);
   });
 
   router.post("/mandates/:id/revocation", async (request, response) => {

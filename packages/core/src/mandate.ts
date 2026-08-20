@@ -30,6 +30,21 @@ export interface RootMandateInput {
   notBefore: string;
   expiresAt: string;
   issuedAt: string;
+  /** The mandate this one is issued in place of. Lineage only — it voids nothing. */
+  supersedes?: Mandate;
+}
+
+/**
+ * A signed pointer at the document being replaced.
+ *
+ * The digest is of the whole predecessor, so the pointer cannot be re-aimed at a different mandate
+ * with the same id — which is the only thing that would make lineage worth recording at all.
+ */
+async function supersessionOf(
+  previous: Mandate | undefined,
+): Promise<{ id: string; digest: string } | undefined> {
+  if (!previous) return undefined;
+  return { id: previous.id, digest: await mandateDigest(previous) };
 }
 
 export async function issueRootMandate(
@@ -52,6 +67,21 @@ export async function issueRootMandate(
     );
   }
 
+  if (input.supersedes && input.supersedes.id === input.id) {
+    throw new WarrantError(
+      "mandate/supersedes_itself",
+      "a mandate cannot be issued in place of itself",
+    );
+  }
+  if (input.supersedes && input.supersedes.organisation.id !== input.organisation.id) {
+    throw new WarrantError(
+      "mandate/supersedes_another_organisation",
+      "a mandate may only replace one issued by the same organisation",
+    );
+  }
+
+  const replaced = await supersessionOf(input.supersedes);
+
   const unsigned: UnsignedMandate = {
     version: MANDATE_VERSION,
     id: input.id,
@@ -60,6 +90,7 @@ export async function issueRootMandate(
     issuer: input.liablePrincipal,
     subject: input.subject,
     parent: null,
+    ...(replaced ? { supersedes: replaced } : {}),
     depth: 0,
     maxDelegationDepth: input.maxDelegationDepth,
     scope: input.scope,
@@ -80,6 +111,8 @@ export interface DelegationInput {
   notBefore: string;
   expiresAt: string;
   issuedAt: string;
+  /** The delegation this one is issued in place of. Lineage only — it voids nothing. */
+  supersedes?: Mandate;
 }
 
 export interface DelegationOptions {
@@ -136,6 +169,21 @@ export async function delegateMandate(
     );
   }
 
+  if (input.supersedes && input.supersedes.id === input.id) {
+    throw new WarrantError(
+      "mandate/supersedes_itself",
+      "a mandate cannot be issued in place of itself",
+    );
+  }
+  if (input.supersedes && input.supersedes.organisation.id !== parent.organisation.id) {
+    throw new WarrantError(
+      "mandate/supersedes_another_organisation",
+      "a mandate may only replace one issued by the same organisation",
+    );
+  }
+
+  const replaced = await supersessionOf(input.supersedes);
+
   const unsigned: UnsignedMandate = {
     version: MANDATE_VERSION,
     id: input.id,
@@ -144,6 +192,7 @@ export async function delegateMandate(
     issuer: parent.subject,
     subject: input.subject,
     parent: { id: parent.id, digest: await mandateDigest(parent) },
+    ...(replaced ? { supersedes: replaced } : {}),
     depth: parent.depth + 1,
     maxDelegationDepth: parent.maxDelegationDepth,
     scope,
