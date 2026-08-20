@@ -13,7 +13,12 @@ import { notFound } from "../http/errors.js";
 import { parseBody } from "../http/validate.js";
 import type { Repositories } from "../persistence/types.js";
 import { delegate, issueRoot, revoke } from "../services/issuance.js";
-import { submitAction, submitSignedAction, takeCheckpoint } from "../services/execution.js";
+import {
+  simulateAction,
+  submitAction,
+  submitSignedAction,
+  takeCheckpoint,
+} from "../services/execution.js";
 
 const isoDateTime = z
   .string()
@@ -129,6 +134,23 @@ export function authorityRoutes(repositories: Repositories): Router {
       packId: outcome.pack.packId,
       packDigest: outcome.pack.integrity.packDigest,
     });
+  });
+
+  const simulationSchema = z
+    .object({
+      mandateId: z.string().min(1),
+      action: z.string().min(1).max(120),
+      resource: z.string().min(1).max(200),
+      counterparty: z.string().min(1).max(200),
+      description: z.string().min(1).max(400).optional(),
+      amount: moneySchema.optional(),
+    })
+    .strict();
+
+  router.post("/simulations", async (request, response) => {
+    const body = parseBody(simulationSchema, request.body);
+    const outcome = await simulateAction(body, repositories, await actorFor(request, repositories));
+    response.json(outcome);
   });
 
   router.post("/checkpoint", async (_request, response) => {

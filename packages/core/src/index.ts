@@ -10,6 +10,7 @@ export * from "./chain.js";
 export * from "./diff.js";
 export * from "./approval.js";
 export * from "./gate.js";
+export * from "./simulate.js";
 export * from "./ledger.js";
 export * from "./evidence.js";
 export * from "./verify.js";

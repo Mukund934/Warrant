@@ -5,7 +5,9 @@ import {
   evaluate,
   signActionRequest,
   signDetached,
+  simulate,
 } from "@warrant/core";
+import type { AssessmentContext, Simulation } from "@warrant/core";
 import type {
   ActionRequest,
   Approval,
@@ -164,29 +166,29 @@ export async function submitSignedAction(
   return recordAction(input.request, chain, nowIso(), repositories, actor, input.approval);
 }
 
-async function recordAction(
-  request: ActionRequest,
+/**
+ * Everything the gate is allowed to see. Extracted so that a simulation is judged against the same
+ * catalogue, the same ceiling, the same revocation snapshot and the same spend as a real action —
+ * a simulator assembling its own context would eventually predict something the gate would not do.
+ */
+export async function gateContext(
   chain: Mandate[],
   evaluatedAt: string,
   repositories: Repositories,
   actor: Actor,
-  approval?: Approval,
-): Promise<SubmitActionResult> {
+  replayStatus: "fresh" | "replayed" | "unchecked",
+  action: string,
+): Promise<AssessmentContext> {
   const leaf = chain[chain.length - 1]!;
+  const organisationId = chain[0]!.organisation.id;
 
-  const fresh = await repositories.nonces.claim(request.nonce);
-  const revocation = await revocationSnapshot(repositories, actor.scope);
-  const roots = await trustRootsFor(repositories, actor.scope);
-  const agentStatus = await agentStatusFor(repositories, leaf.subject.keyId);
-
-  // The catalogue consulted is the one belonging to the organisation that issued the authority, not
-  // the one the caller happens to be signed in to. An organisation defines what its own verbs mean.
-  const capability = await resolveCapability(
-    repositories,
-    chain[0]!.organisation.id,
-    request.action,
-  );
-  const houseScope = await repositories.directory.houseScope(chain[0]!.organisation.id);
+  const [revocation, roots, agentStatus, capability, houseScope] = await Promise.all([
+    revocationSnapshot(repositories, actor.scope),
+    trustRootsFor(repositories, actor.scope),
+    agentStatusFor(repositories, leaf.subject.keyId),
+    resolveCapability(repositories, organisationId, action),
+    repositories.directory.houseScope(organisationId),
+  ]);
 
   const perPeriod = leaf.scope.limits.perPeriod;
   const priorSpend = perPeriod
@@ -200,24 +202,92 @@ async function recordAction(
       )
     : undefined;
 
+  return {
+    trustRoots: roots,
+    revocation,
+    inputs: {
+      evaluatedAt,
+      replayStatus,
+      freshness: REQUEST_FRESHNESS,
+      escalationThreshold: ESCALATION_THRESHOLD,
+      ...(agentStatus ? { agentStatus } : {}),
+      ...(capability ? { capability } : {}),
+      ...(houseScope ? { houseScope } : {}),
+      ...(priorSpend ? { priorSpend } : {}),
+    },
+  };
+}
+
+export interface SimulateInput {
+  mandateId: string;
+  action: string;
+  resource: string;
+  counterparty: string;
+  description?: string;
+  amount?: Money;
+}
+
+/**
+ * Answers what the gate would say, and records nothing at all: no nonce is claimed, no ledger entry
+ * is appended, no evidence is saved. The context comes from `gateContext`, the same function a real
+ * action uses, so a prediction cannot quietly drift from the decision it predicts.
+ */
+export async function simulateAction(
+  input: SimulateInput,
+  repositories: Repositories,
+  actor: Actor = DEMONSTRATION_ACTOR,
+): Promise<Simulation> {
+  const chain = await repositories.mandates.findChain(input.mandateId, actor.scope);
+  if (!chain || chain.length === 0) {
+    throw notFound(`no mandate chain could be resolved for ${input.mandateId}`);
+  }
+
+  const context = await gateContext(
+    chain,
+    nowIso(),
+    repositories,
+    actor,
+    "unchecked",
+    input.action,
+  );
+
+  return simulate(
+    {
+      action: input.action,
+      resource: input.resource,
+      counterparty: input.counterparty,
+      ...(input.description ? { description: input.description } : {}),
+      ...(input.amount ? { amount: input.amount } : {}),
+    },
+    chain,
+    context,
+  );
+}
+
+async function recordAction(
+  request: ActionRequest,
+  chain: Mandate[],
+  evaluatedAt: string,
+  repositories: Repositories,
+  actor: Actor,
+  approval?: Approval,
+): Promise<SubmitActionResult> {
+  const fresh = await repositories.nonces.claim(request.nonce);
+  const context = await gateContext(
+    chain,
+    evaluatedAt,
+    repositories,
+    actor,
+    fresh ? "fresh" : "replayed",
+    request.action,
+  );
+  const roots = context.trustRoots;
+  const revocation = context.revocation;
+
   const decision = await evaluate(
     request,
     chain,
-    {
-      trustRoots: roots,
-      revocation,
-      ...(approval ? { approval } : {}),
-      inputs: {
-        evaluatedAt,
-        replayStatus: fresh ? "fresh" : "replayed",
-        freshness: REQUEST_FRESHNESS,
-        escalationThreshold: ESCALATION_THRESHOLD,
-        ...(agentStatus ? { agentStatus } : {}),
-        ...(capability ? { capability } : {}),
-        ...(houseScope ? { houseScope } : {}),
-        ...(priorSpend ? { priorSpend } : {}),
-      },
-    },
+    { ...context, ...(approval ? { approval } : {}) },
     gate,
   );
 

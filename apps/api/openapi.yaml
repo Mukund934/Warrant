@@ -163,6 +163,33 @@ paths:
         "403": { $ref: "#/components/responses/InsufficientRole" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /simulations:
+    post:
+      tags: [actions]
+      summary: What the gate would say, recording nothing
+      description: >
+        Answers whether an action *would* be allowed, and if not which check refuses it. **Nothing is
+        recorded**: no nonce is claimed, no ledger entry is appended, no evidence pack is written, and
+        the result carries no id, no proof and no signature — so it can never be presented as a
+        decision, and the evidence-pack schema rejects it.
+
+        It is judged against the same revocation snapshot, the same capability catalogue, the same
+        house ceiling and the same recorded spend as a real action, because it uses the same context
+        the gate uses.
+
+        **Two things are assumed rather than proved**, and the response says so in `assumptions` and
+        in the affected checks: that the acting agent signed the request with the key its mandate
+        names, and that the nonce was unused. A simulation cannot prove possession of a key nobody
+        used.
+
+        Needs a tenant but no write role, since nothing is written — an auditor may ask.
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200": { description: The verdict that would be reached, every check behind it, and what was assumed. }
+        "400": { $ref: "#/components/responses/InvalidRequest" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /checkpoint:
     post:
       tags: [verification]
