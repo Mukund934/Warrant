@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { SessionControl } from "@/components/session-control";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -58,13 +59,16 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               ))}
             </nav>
 
-            <a
-              href="https://github.com/Mukund934/Warrant"
-              className="ml-auto hidden shrink-0 rounded-full border border-line px-2.5 py-1 text-[11px] uppercase tracking-[0.13em] text-text-faint transition-colors hover:border-line-strong hover:text-text-muted sm:inline"
-              rel="noreferrer noopener"
-            >
-              Source
-            </a>
+            <div className="ml-auto flex shrink-0 items-center gap-3">
+              <a
+                href="https://github.com/Mukund934/Warrant"
+                className="hidden rounded-full border border-line px-2.5 py-1 text-[11px] uppercase tracking-[0.13em] text-text-faint transition-colors hover:border-line-strong hover:text-text-muted sm:inline"
+                rel="noreferrer noopener"
+              >
+                Source
+              </a>
+              <SessionControl />
+            </div>
           </div>
         </header>
 
