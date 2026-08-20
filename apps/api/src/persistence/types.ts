@@ -5,6 +5,7 @@ import type {
   Mandate,
   Money,
   RiskLevel,
+  Scope,
   TrustRoot,
 } from "@warrant/core";
 
@@ -78,6 +79,10 @@ export interface DirectoryRepository {
   membership(organisationId: string, accountId: string): Promise<Membership | undefined>;
   membershipsFor(accountId: string): Promise<Membership[]>;
   members(organisationId: string): Promise<MemberSummary[]>;
+  // The ceiling above every mandate this organisation issues. Stored beside the organisation and
+  // never on it, because that row is copied verbatim into each signed mandate.
+  setHouseScope(organisationId: string, scope: Scope | null, at: string): Promise<void>;
+  houseScope(organisationId: string): Promise<Scope | undefined>;
 }
 
 export interface RegisteredAgent {

@@ -316,6 +316,52 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "422": { description: "`private_key_supplied`, `unsupported_key` or `transition_refused`." }
 
+  /house-scope:
+    post:
+      tags: [organisations]
+      summary: Set the ceiling above every mandate this organisation issues
+      description: >
+        Needs `admin` or `owner`. The body carries one `Scope`. From then on
+        `effective_authority = chain_scope ∩ house_scope`, and a meet can only subtract — the ceiling
+        can never grant an action, raise a limit or reopen a counterparty list the mandate closed.
+
+        **Enforced twice, by the same rule both times.** Issuance refuses a mandate that would exceed
+        the ceiling, using `narrows` — the identical function that refuses a widening delegation. And
+        the ceiling in force at the moment of an action is written into the signed decision, so a
+        stranger reproduces the verdict offline without holding it, and tightening the ceiling later
+        cannot reach back and change a verdict already reached.
+
+        Setting a ceiling binds immediately. There is no advisory mode, because a ceiling nobody
+        enforces is not a ceiling.
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200": { description: The ceiling now in force. }
+        "400": { $ref: "#/components/responses/InvalidRequest" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/InsufficientRole" }
+    get:
+      tags: [organisations]
+      summary: Read this organisation's ceiling
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200": { description: "The ceiling, or `scope: null` if none was ever set." }
+        "400": { $ref: "#/components/responses/InvalidRequest" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+
+  /house-scope/withdrawal:
+    post:
+      tags: [organisations]
+      summary: Remove the ceiling
+      description: >
+        Needs `admin` or `owner`. Future actions are judged on the delegated authority alone.
+        Decisions already recorded keep the ceiling that was in force when they were made.
+      security: [{ bearerAuth: [] }]
+      responses:
+        "204": { description: The ceiling no longer applies. }
+        "400": { $ref: "#/components/responses/InvalidRequest" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/InsufficientRole" }
+
   /capabilities:
     post:
       tags: [capabilities]

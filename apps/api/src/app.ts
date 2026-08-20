@@ -14,7 +14,12 @@ import { catalogueRoutes } from "./routes/catalogue.js";
 import { directoryRoutes } from "./routes/directory.js";
 
 export const AUTHORITY_PATHS = ["/v1/mandates", "/v1/actions", "/v1/checkpoint"];
-export const DIRECTORY_PATHS = ["/v1/organisations", "/v1/agents", "/v1/capabilities"];
+export const DIRECTORY_PATHS = [
+  "/v1/organisations",
+  "/v1/agents",
+  "/v1/capabilities",
+  "/v1/house-scope",
+];
 export const PROTECTED_PATHS = [...AUTHORITY_PATHS, ...DIRECTORY_PATHS];
 
 export interface DatabaseProbe {

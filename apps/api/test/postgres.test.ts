@@ -7,6 +7,7 @@ import { trustRoots } from "@warrant/core/fixtures";
 import { createApp } from "../src/app.js";
 import {
   PostgresCapabilityRepository,
+  PostgresDirectoryRepository,
   PostgresLedgerRepository,
   PostgresNonceStore,
   createPostgresRepositories,
@@ -840,5 +841,86 @@ withDatabase("the capability catalogue in Postgres", () => {
         [orgs.first],
       ),
     ).rejects.toThrow(/check constraint|violates/i);
+  }, 60_000);
+});
+
+withDatabase("the house scope in Postgres", () => {
+  const directory = () => new PostgresDirectoryRepository(main.admin);
+  const orgs = { first: "", second: "" };
+
+  const CEILING = {
+    actions: ["payment.execute"],
+    audience: ["erp:meridian/accounts-payable"],
+    counterparties: { allow: ["Kalyani Steel Works"] },
+    limits: {
+      perAction: { currency: "INR" as const, minor: 20_000_000 },
+      perPeriod: { amount: { currency: "INR" as const, minor: 90_000_000 }, days: 30 },
+    },
+    approval: { above: { currency: "INR" as const, minor: 5_000_000 } },
+    purpose: "Supplier settlement only",
+  };
+
+  beforeAll(async () => {
+    if (!databaseAvailable) return;
+    const stamp = crypto.randomUUID().slice(0, 8);
+    orgs.first = `org:house-a-${stamp}`;
+    orgs.second = `org:house-b-${stamp}`;
+
+    for (const id of [orgs.first, orgs.second]) {
+      await main.admin.query(
+        "insert into organisations (id, name, jurisdiction) values ($1, $2, 'IN-MH')",
+        [id, `House ${id.slice(-8)}`],
+      );
+    }
+  }, 120_000);
+
+  it("round-trips a whole scope through jsonb, nested money included", async () => {
+    const store = directory();
+    await store.setHouseScope(orgs.first, CEILING, "2026-08-19T09:00:00Z");
+
+    expect(await store.houseScope(orgs.first)).toEqual(CEILING);
+  }, 60_000);
+
+  it("holds one ceiling per organisation and never leaks it sideways", async () => {
+    const store = directory();
+    expect(await store.houseScope(orgs.second)).toBeUndefined();
+  }, 60_000);
+
+  it("replaces rather than duplicates when a ceiling is set again", async () => {
+    const store = directory();
+    await store.setHouseScope(
+      orgs.first,
+      { ...CEILING, actions: ["invoice.read"] },
+      "2026-08-19T10:00:00Z",
+    );
+
+    expect((await store.houseScope(orgs.first))?.actions).toEqual(["invoice.read"]);
+
+    const rows = await main.admin.query("select 1 from house_scopes where organisation_id = $1", [
+      orgs.first,
+    ]);
+    expect(rows.rows).toHaveLength(1);
+  }, 60_000);
+
+  it("keeps the row but reports no ceiling once it is withdrawn", async () => {
+    const store = directory();
+    await store.setHouseScope(orgs.first, null, "2026-08-19T11:00:00Z");
+
+    expect(await store.houseScope(orgs.first)).toBeUndefined();
+
+    const rows = await main.admin.query("select scope from house_scopes where organisation_id = $1", [
+      orgs.first,
+    ]);
+    expect(rows.rows).toHaveLength(1);
+    expect(rows.rows[0]?.scope).toBeNull();
+  }, 60_000);
+
+  it("will not record a ceiling against an organisation that does not exist", async () => {
+    await expect(
+      main.admin.query(
+        "insert into house_scopes (organisation_id, scope) values ($1, $2)",
+        ["org:does-not-exist", CEILING],
+      ),
+    ).rejects.toThrow(/foreign key|violates/i);
   }, 60_000);
 });

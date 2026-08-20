@@ -1,7 +1,15 @@
 import pg from "pg";
 import type { Pool } from "pg";
 import { GENESIS_DIGEST, WarrantError, ledgerEntryDigest } from "@warrant/core";
-import type { AgentStatus, EvidencePack, LedgerEntry, Mandate, Money, RiskLevel } from "@warrant/core";
+import type {
+  AgentStatus,
+  EvidencePack,
+  LedgerEntry,
+  Mandate,
+  Money,
+  RiskLevel,
+  Scope,
+} from "@warrant/core";
 import type {
   Account,
   AgentKey,
@@ -634,6 +642,24 @@ export class PostgresDirectoryRepository implements DirectoryRepository {
       role: row.role,
       ...(row.email ? { email: row.email } : {}),
     }));
+  }
+
+  async setHouseScope(organisationId: string, scope: Scope | null, at: string): Promise<void> {
+    await this.pool.query(
+      `insert into house_scopes (organisation_id, scope, set_at)
+       values ($1, $2, $3)
+       on conflict (organisation_id) do update
+         set scope = excluded.scope, set_at = excluded.set_at`,
+      [organisationId, scope, at],
+    );
+  }
+
+  async houseScope(organisationId: string): Promise<Scope | undefined> {
+    const rows = await this.pool.query<{ scope: Scope | null }>(
+      "select scope from house_scopes where organisation_id = $1",
+      [organisationId],
+    );
+    return rows.rows[0]?.scope ?? undefined;
   }
 }
 

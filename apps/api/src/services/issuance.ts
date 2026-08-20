@@ -1,4 +1,11 @@
-import { DelegationError, delegateMandate, digestOf, issueRootMandate } from "@warrant/core";
+import {
+  DelegationError,
+  delegateMandate,
+  digestOf,
+  issueRootMandate,
+  narrows,
+  resolveDelta,
+} from "@warrant/core";
 import type { LegalPerson, Mandate, Scope, ScopeDelta } from "@warrant/core";
 import { notFound, unprocessable } from "../http/errors.js";
 import { subjectAgentFor } from "./agents.js";
@@ -59,6 +66,26 @@ export function accountablePerson(input: AccountablePersonInput): LegalPerson {
   };
 }
 
+// The ceiling is enforced with `narrows`, the same function that refuses a widening delegation.
+// A root mandate is simply given a parent it cannot exceed; no second comparison exists to drift.
+async function assertInsideHouseScope(
+  scope: Scope,
+  repositories: Repositories,
+  organisationId: string,
+): Promise<void> {
+  const ceiling = await repositories.directory.houseScope(organisationId);
+  if (!ceiling) return;
+
+  const violations = narrows(scope, ceiling);
+  if (violations.length > 0) {
+    throw unprocessable(
+      "outside_house_scope",
+      "this organisation set a ceiling above its mandates, and this one would exceed it",
+      violations,
+    );
+  }
+}
+
 async function record(mandate: Mandate, repositories: Repositories): Promise<void> {
   await repositories.mandates.save(mandate);
   await repositories.ledger.append({
@@ -85,6 +112,8 @@ export async function issueRoot(
   const subject = input.agentId
     ? await subjectAgentFor(repositories, input.agentId, actor.scope)
     : apAgent;
+
+  await assertInsideHouseScope(input.scope, repositories, actor.organisation.id);
 
   let mandate: Mandate;
   try {
@@ -137,6 +166,14 @@ export async function delegate(
   const subject = input.agentId
     ? await subjectAgentFor(repositories, input.agentId, actor.scope)
     : paymentAgent;
+
+  // A delegation issued today answers to today's ceiling, not the one in force when its parent
+  // was signed. The resolved scope is what the child would actually carry.
+  await assertInsideHouseScope(
+    resolveDelta(input.scopeDelta, parent.scope),
+    repositories,
+    parent.organisation.id,
+  );
 
   let mandate: Mandate;
   try {

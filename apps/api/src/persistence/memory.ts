@@ -1,5 +1,5 @@
 import { GENESIS_DIGEST, ledgerEntryDigest } from "@warrant/core";
-import type { EvidencePack, LedgerEntry, Mandate } from "@warrant/core";
+import type { EvidencePack, LedgerEntry, Mandate, Scope } from "@warrant/core";
 import type { AgentStatus } from "@warrant/core";
 import type {
   Account,
@@ -137,6 +137,7 @@ export class InMemoryDirectoryRepository implements DirectoryRepository {
   private readonly organisations = new Map<string, Organisation>();
   private readonly accounts = new Map<string, Account>();
   private readonly memberships = new Map<string, Membership>();
+  private readonly ceilings = new Map<string, Scope>();
 
   private static key(organisationId: string, accountId: string): string {
     return `${organisationId}\0${accountId}`;
@@ -192,8 +193,16 @@ export class InMemoryDirectoryRepository implements DirectoryRepository {
         return { ...row, ...(account?.email ? { email: account.email } : {}) };
       });
   }
-}
 
+  async setHouseScope(organisationId: string, scope: Scope | null, _at: string): Promise<void> {
+    if (scope) this.ceilings.set(organisationId, scope);
+    else this.ceilings.delete(organisationId);
+  }
+
+  async houseScope(organisationId: string): Promise<Scope | undefined> {
+    return this.ceilings.get(organisationId);
+  }
+}
 
 export class InMemoryAgentRepository implements AgentRepository {
   private readonly rows = new Map<string, RegisteredAgent>();

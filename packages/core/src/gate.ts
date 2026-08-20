@@ -3,7 +3,15 @@ import { digestOf } from "./canonical.js";
 import { verifyApproval } from "./approval.js";
 import { findTrustRoot, keyLifecycleFault, validateChain } from "./chain.js";
 import { mandateDigest } from "./mandate.js";
-import { formatMoney, isScopeEmpty, permitsCounterparty, describeCounterparties } from "./scope.js";
+import { diffScope } from "./diff.js";
+import {
+  formatMoney,
+  isScopeEmpty,
+  meet,
+  narrows,
+  permitsCounterparty,
+  describeCounterparties,
+} from "./scope.js";
 import { signDetached } from "./sign.js";
 import type { SignerIdentity } from "./sign.js";
 import { DECISION_VERSION, WarrantError } from "./types.js";
@@ -92,8 +100,36 @@ export async function assess(
   });
 
   const checks = [...chainReport.checks];
-  const scope = chainReport.effectiveScope ?? EMPTY_SCOPE;
+  const chainScope = chainReport.effectiveScope ?? EMPTY_SCOPE;
   const leaf = chain[chain.length - 1];
+
+  // `effective_authority = chain_scope ∩ house_scope`, and a meet can only subtract. Nothing new
+  // compares scopes here: the ceiling narrows the authority and the ordinary checks do the rest.
+  const houseScope = context.inputs.houseScope;
+  let scope = chainScope;
+  let ceilingFault: string | undefined;
+  if (houseScope) {
+    try {
+      scope = meet(chainScope, houseScope);
+    } catch (error) {
+      ceilingFault = (error as Error).message;
+    }
+  }
+
+  const removedByCeiling = new Set(
+    houseScope && !ceilingFault
+      ? diffScope(chainScope, scope)
+          .filter((change) => change.direction === "narrowed")
+          .map((change) => change.field)
+      : [],
+  );
+
+  // A refusal has to name the right culprit. Without this the reader is told the mandate does not
+  // authorise something it plainly does, because the ceiling is what took it away.
+  const ceilingNote = (field: string): string =>
+    removedByCeiling.has(field)
+      ? `. This organisation's ceiling narrowed ${field} after delegation, so the mandate alone is not the whole story`
+      : "";
 
   if (!leaf) {
     return {
@@ -186,7 +222,7 @@ export async function assess(
       fail(
         "audience.binding",
         "The target system is covered by the mandate",
-        "the mandate does not authorise action against this system",
+        `the mandate does not authorise action against this system${ceilingNote("audience")}`,
         scope.audience.join(", ") || "no resources",
         request.resource,
       ),
@@ -207,8 +243,8 @@ export async function assess(
         "action.in_scope",
         "The requested action is inside the delegated scope",
         isScopeEmpty(scope)
-          ? "the delegated scope is empty once every hop is intersected"
-          : "the mandate does not authorise this action",
+          ? `the delegated scope is empty once every hop is intersected${ceilingNote("actions")}`
+          : `the mandate does not authorise this action${ceilingNote("actions")}`,
         scope.actions.join(", ") || "no actions",
         request.action,
       ),
@@ -228,7 +264,7 @@ export async function assess(
       fail(
         "counterparty.allowed",
         "The counterparty is on the delegated list",
-        "the mandate does not authorise action involving this counterparty",
+        `the mandate does not authorise action involving this counterparty${ceilingNote("counterparties")}`,
         describeCounterparties(scope) || "no counterparties",
         request.counterparty,
       ),
@@ -263,7 +299,7 @@ export async function assess(
       fail(
         "limit.per_action",
         "The amount is within the per-action limit",
-        "the requested amount exceeds the delegated per-action limit",
+        `the requested amount exceeds the delegated per-action limit${ceilingNote("limits.perAction")}`,
         formatMoney(perAction),
         formatMoney(request.amount),
       ),
@@ -306,7 +342,9 @@ export async function assess(
         fail(
           "limit.per_period",
           "The periodic budget has not been exhausted",
-          `this action would take spend past the ${perPeriod.days}-day delegated budget`,
+          `this action would take spend past the ${perPeriod.days}-day delegated budget${ceilingNote(
+            "limits.perPeriod",
+          )}`,
           formatMoney(perPeriod.amount),
           formatMoney({ currency: perPeriod.amount.currency, minor: projected }),
         ),
@@ -537,6 +575,48 @@ export async function assess(
         ),
       );
     }
+  }
+
+  const HOUSE_TITLE = "The authority stays inside the ceiling its organisation set";
+  if (!houseScope) {
+    checks.push({
+      id: "house.ceiling",
+      title: HOUSE_TITLE,
+      status: "skip",
+      detail: "this organisation set no ceiling above its mandates, so none was applied",
+    });
+  } else if (ceilingFault) {
+    checks.push(
+      fail(
+        "house.ceiling",
+        HOUSE_TITLE,
+        `this organisation's ceiling cannot be combined with the delegated authority: ${ceilingFault}`,
+      ),
+    );
+  } else if (removedByCeiling.size === 0) {
+    checks.push(
+      pass(
+        "house.ceiling",
+        HOUSE_TITLE,
+        narrows(chainScope, houseScope).length === 0
+          ? "the delegated authority was already inside the ceiling, which therefore removed nothing"
+          : "the ceiling removed nothing this action depends on",
+      ),
+    );
+  } else {
+    const removed = diffScope(chainScope, scope).filter(
+      (change) => change.direction === "narrowed",
+    );
+    checks.push({
+      id: "house.ceiling",
+      title: HOUSE_TITLE,
+      status: "warn",
+      detail: `this organisation's ceiling subtracted from the delegated authority before this action was judged: ${removed
+        .map((change) => `${change.field} ${change.summary}`)
+        .join("; ")}`,
+      expected: "authority already inside the ceiling",
+      observed: removed.map((change) => change.field).join(", "),
+    });
   }
 
   const failing = checks.filter((check) => check.status === "fail");

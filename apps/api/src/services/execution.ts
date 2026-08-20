@@ -186,6 +186,7 @@ async function recordAction(
     chain[0]!.organisation.id,
     request.action,
   );
+  const houseScope = await repositories.directory.houseScope(chain[0]!.organisation.id);
 
   const perPeriod = leaf.scope.limits.perPeriod;
   const priorSpend = perPeriod
@@ -213,6 +214,7 @@ async function recordAction(
         escalationThreshold: ESCALATION_THRESHOLD,
         ...(agentStatus ? { agentStatus } : {}),
         ...(capability ? { capability } : {}),
+        ...(houseScope ? { houseScope } : {}),
         ...(priorSpend ? { priorSpend } : {}),
       },
     },

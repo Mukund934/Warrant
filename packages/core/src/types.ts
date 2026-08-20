@@ -165,6 +165,7 @@ export const evaluationInputsSchema = z.object({
   replayStatus: z.enum(["fresh", "replayed", "unchecked"]),
   agentStatus: agentStatusSchema.optional(),
   capability: capabilityResolutionSchema.optional(),
+  houseScope: scopeSchema.optional(),
   freshness: freshnessPolicySchema.optional(),
   priorSpend: moneySchema.optional(),
   escalationThreshold: moneySchema.optional(),

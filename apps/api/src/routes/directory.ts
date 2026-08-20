@@ -1,9 +1,11 @@
 import { Router } from "express";
+import { scopeSchema } from "@warrant/core";
 import { z } from "zod";
 import { badRequest, notFound, unprocessable } from "../http/errors.js";
 import { parseBody } from "../http/validate.js";
 import { accountIdFor, assertRole, organisationIdFor } from "../auth/tenancy.js";
 import type { Repositories } from "../persistence/types.js";
+import { nowIso } from "../warrant/context.js";
 
 const createOrganisationSchema = z.object({
   name: z.string().min(2).max(120),
@@ -16,8 +18,43 @@ const grantSchema = z.object({
   role: z.enum(["owner", "admin", "member", "auditor"]),
 });
 
+const houseScopeSchema = z.object({ scope: scopeSchema }).strict();
+
 export function directoryRoutes(repositories: Repositories): Router {
   const router = Router();
+
+  const organisationOf = (organisationId: string | undefined): string => {
+    if (!organisationId) {
+      throw badRequest(
+        "no_organisation",
+        "a ceiling belongs to an organisation, so reading or setting one needs an authenticated caller in one",
+      );
+    }
+    return organisationId;
+  };
+
+  router.post("/house-scope", async (request, response) => {
+    assertRole(request, "admin");
+    const body = parseBody(houseScopeSchema, request.body);
+    const organisationId = organisationOf(request.tenant?.organisationId);
+
+    await repositories.directory.setHouseScope(organisationId, body.scope, nowIso());
+    response.json({ organisationId, scope: body.scope });
+  });
+
+  router.get("/house-scope", async (request, response) => {
+    const organisationId = organisationOf(request.tenant?.organisationId);
+    const scope = await repositories.directory.houseScope(organisationId);
+    response.json({ organisationId, scope: scope ?? null });
+  });
+
+  router.post("/house-scope/withdrawal", async (request, response) => {
+    assertRole(request, "admin");
+    const organisationId = organisationOf(request.tenant?.organisationId);
+
+    await repositories.directory.setHouseScope(organisationId, null, nowIso());
+    response.status(204).end();
+  });
 
   router.post("/organisations", async (request, response) => {
     const body = parseBody(createOrganisationSchema, request.body);
