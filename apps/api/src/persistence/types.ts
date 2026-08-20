@@ -1,4 +1,5 @@
 import type {
+  ActionRequest,
   AgentStatus,
   EvidencePack,
   LedgerEntry,
@@ -258,6 +259,34 @@ export interface CapabilityRepository {
   ): Promise<void>;
 }
 
+export type PendingStatus = "pending" | "resumed" | "expired";
+
+export interface PendingAction {
+  id: string;
+  organisationId: string;
+  mandateId: string;
+  requestDigest: string;
+  request: ActionRequest;
+  reason: string;
+  packId?: string;
+  status: PendingStatus;
+  createdAt: string;
+  expiresAt: string;
+  resolvedAt?: string;
+}
+
+export interface PendingActionRepository {
+  park(action: PendingAction): Promise<void>;
+  find(id: string, scope: TenantScope): Promise<PendingAction | undefined>;
+  open(scope: TenantScope): Promise<PendingAction[]>;
+  /**
+   * Moves one parked action out of `pending` and reports whether this caller is the one that moved
+   * it. A conditional update rather than a read-then-write, because two resumes racing must not both
+   * win: the parked row holds the nonce claim, so winning it twice would be a double spend.
+   */
+  claim(id: string, to: Exclude<PendingStatus, "pending">, at: string, scope: TenantScope): Promise<boolean>;
+}
+
 export interface Repositories {
   mandates: MandateRepository;
   evidence: EvidenceRepository;
@@ -266,4 +295,5 @@ export interface Repositories {
   directory: DirectoryRepository;
   agents: AgentRepository;
   capabilities: CapabilityRepository;
+  pending: PendingActionRepository;
 }

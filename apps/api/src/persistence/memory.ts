@@ -19,6 +19,9 @@ import type {
   DirectoryRepository,
   EvidencePage,
   EvidenceQuery,
+  PendingAction,
+  PendingActionRepository,
+  PendingStatus,
   EvidenceRepository,
   LedgerRepository,
   MandateRepository,
@@ -395,6 +398,38 @@ export class InMemoryCapabilityRepository implements CapabilityRepository {
   }
 }
 
+export class InMemoryPendingActionRepository implements PendingActionRepository {
+  private readonly rows = new Map<string, PendingAction>();
+
+  async park(action: PendingAction): Promise<void> {
+    this.rows.set(action.id, action);
+  }
+
+  async find(id: string, scope: TenantScope): Promise<PendingAction | undefined> {
+    const action = this.rows.get(id);
+    return action && withinScope(action.organisationId, scope) ? action : undefined;
+  }
+
+  async open(scope: TenantScope): Promise<PendingAction[]> {
+    return [...this.rows.values()]
+      .filter((action) => action.status === "pending" && withinScope(action.organisationId, scope))
+      .sort((a, b) => (a.createdAt === b.createdAt ? a.id.localeCompare(b.id) : a.createdAt < b.createdAt ? 1 : -1));
+  }
+
+  async claim(
+    id: string,
+    to: Exclude<PendingStatus, "pending">,
+    at: string,
+    scope: TenantScope,
+  ): Promise<boolean> {
+    const action = await this.find(id, scope);
+    if (!action || action.status !== "pending") return false;
+
+    this.rows.set(id, { ...action, status: to, resolvedAt: at });
+    return true;
+  }
+}
+
 export function createInMemoryRepositories(): Repositories {
   return {
     mandates: new InMemoryMandateRepository(),
@@ -404,5 +439,6 @@ export function createInMemoryRepositories(): Repositories {
     directory: new InMemoryDirectoryRepository(),
     agents: new InMemoryAgentRepository(),
     capabilities: new InMemoryCapabilityRepository(),
+    pending: new InMemoryPendingActionRepository(),
   };
 }

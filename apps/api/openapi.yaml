@@ -190,6 +190,69 @@ paths:
         "403": { $ref: "#/components/responses/InsufficientRole" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /pending:
+    get:
+      tags: [actions]
+      summary: Actions waiting for a human
+      description: >
+        Every action that escalated and has not yet been resumed or expired, newest first.
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200": { description: The open pending actions for the caller's organisation. }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+
+  /pending/{id}:
+    get:
+      tags: [actions]
+      summary: Read one parked action, and the digest an approval must name
+      description: >
+        Returns the signed request exactly as it was presented, together with `requestDigest` — the
+        value an approval binds to. An approver signs that digest; they do not have to recompute it
+        from bytes they may not hold.
+
+        **This closes the gap D42 recorded.** An approval could previously only accompany a request
+        the caller had built themselves, because the digest did not exist until the request did. A
+        parked action now carries both.
+      parameters: [{ $ref: "#/components/parameters/MandateId" }]
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200": { description: The parked action, its request, its digest and its expiry. }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /pending/{id}/resume:
+    post:
+      tags: [actions]
+      summary: Resume a parked action with the approval that satisfies it
+      description: >
+        Re-runs the real gate over the request exactly as it was parked, with the approval attached.
+
+        **The nonce was claimed when the action was parked**, so this is a continuation rather than a
+        second use of it. The parked row therefore holds that claim, and moving it out of `pending` is
+        a conditional update — two resumes racing cannot both proceed, and a resumed action cannot be
+        spent twice.
+
+        **Freshness is judged against the parked window, not the live one.** A person takes longer
+        than the 300 seconds a live request is spendable for, so a resumed decision records a wider
+        acceptance window in its signed inputs and reproduces offline against that. The live window is
+        unchanged; it was not widened to make this workflow convenient.
+
+        A parked action that was never approved in time is refused as expired. An escalation nobody
+        answered is not permission.
+
+        Everything else still applies: the service never manufactures an approval, the approver must
+        be a second human, and a valid approval still cannot rescue an out-of-scope, revoked or
+        otherwise refused action.
+      parameters: [{ $ref: "#/components/parameters/MandateId" }]
+      security: [{ bearerAuth: [] }]
+      responses:
+        "201": { description: The decision reached on resuming, and its evidence. }
+        "400": { $ref: "#/components/responses/InvalidRequest" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/InsufficientRole" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { description: "`already_resolved` or `pending_expired`." }
+
   /simulations:
     post:
       tags: [actions]

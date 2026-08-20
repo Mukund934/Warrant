@@ -24,10 +24,12 @@ import { notFound, unprocessable } from "../http/errors.js";
 import type { Repositories, TenantScope } from "../persistence/types.js";
 import { agentStatusFor, trustRootsFor } from "./agents.js";
 import { resolveCapability } from "./capabilities.js";
+import { parkAction } from "./pending.js";
 import { DEMONSTRATION_ACTOR } from "./issuance.js";
 import type { Actor } from "./issuance.js";
 import {
   ESCALATION_THRESHOLD,
+  PENDING_FRESHNESS,
   gate,
   identifier,
   CHECKPOINT_ORIGIN,
@@ -197,6 +199,7 @@ export async function gateContext(
   actor: Actor,
   replayStatus: "fresh" | "replayed" | "unchecked",
   action: string,
+  freshness: { maxAgeSeconds: number; clockSkewSeconds: number } = REQUEST_FRESHNESS,
 ): Promise<AssessmentContext> {
   const leaf = chain[chain.length - 1]!;
   const organisationId = chain[0]!.organisation.id;
@@ -227,7 +230,7 @@ export async function gateContext(
     inputs: {
       evaluatedAt,
       replayStatus,
-      freshness: REQUEST_FRESHNESS,
+      freshness,
       escalationThreshold: ESCALATION_THRESHOLD,
       ...(agentStatus ? { agentStatus } : {}),
       ...(capability ? { capability } : {}),
@@ -292,13 +295,41 @@ async function recordAction(
   approval?: Approval,
 ): Promise<SubmitActionResult> {
   const fresh = await repositories.nonces.claim(request.nonce);
+  return recordDecision(
+    request,
+    chain,
+    evaluatedAt,
+    repositories,
+    actor,
+    { replayStatus: fresh ? "fresh" : "replayed", freshness: REQUEST_FRESHNESS, park: true },
+    approval,
+  );
+}
+
+export interface DecisionMode {
+  replayStatus: "fresh" | "replayed" | "unchecked";
+  freshness: { maxAgeSeconds: number; clockSkewSeconds: number };
+  /** A resumed action is never re-parked; its pending row is already resolved. */
+  park: boolean;
+}
+
+export async function recordDecision(
+  request: ActionRequest,
+  chain: Mandate[],
+  evaluatedAt: string,
+  repositories: Repositories,
+  actor: Actor,
+  mode: DecisionMode,
+  approval?: Approval,
+): Promise<SubmitActionResult> {
   const context = await gateContext(
     chain,
     evaluatedAt,
     repositories,
     actor,
-    fresh ? "fresh" : "replayed",
+    mode.replayStatus,
     request.action,
+    mode.freshness,
   );
   const roots = context.trustRoots;
   const revocation = context.revocation;
@@ -343,5 +374,12 @@ async function recordAction(
   );
 
   await repositories.evidence.save(pack, chain[0]!.organisation.id);
+
+  // The nonce was claimed above, so from here the parked row holds that claim. Resuming it is the
+  // continuation of this same request, not a second use of the nonce.
+  if (mode.park && decision.verdict === "ESCALATE" && !approval) {
+    await parkAction(request, chain, decision, pack.packId, repositories, evaluatedAt);
+  }
+
   return { decision, pack };
 }

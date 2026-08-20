@@ -23,6 +23,9 @@ import type {
   DirectoryRepository,
   EvidencePage,
   EvidenceQuery,
+  PendingAction,
+  PendingActionRepository,
+  PendingStatus,
   EvidenceRepository,
   LedgerRepository,
   MandateRepository,
@@ -873,6 +876,101 @@ export class PostgresCapabilityRepository implements CapabilityRepository {
   }
 }
 
+const PENDING_COLUMNS =
+  "id, organisation_id, mandate_id, request_digest, request, reason, pack_id, status, " +
+  "created_at, expires_at, resolved_at";
+
+interface PendingRow {
+  id: string;
+  organisation_id: string;
+  mandate_id: string;
+  request_digest: string;
+  request: PendingAction["request"];
+  reason: string;
+  pack_id: string | null;
+  status: PendingStatus;
+  created_at: Date;
+  expires_at: Date;
+  resolved_at: Date | null;
+}
+
+function pendingFrom(row: PendingRow): PendingAction {
+  return {
+    id: row.id,
+    organisationId: row.organisation_id,
+    mandateId: row.mandate_id,
+    requestDigest: row.request_digest,
+    request: row.request,
+    reason: row.reason,
+    ...(row.pack_id ? { packId: row.pack_id } : {}),
+    status: row.status,
+    createdAt: isoFromDatabase(row.created_at),
+    expiresAt: isoFromDatabase(row.expires_at),
+    ...(row.resolved_at ? { resolvedAt: isoFromDatabase(row.resolved_at) } : {}),
+  };
+}
+
+export class PostgresPendingActionRepository implements PendingActionRepository {
+  constructor(private readonly pool: Pool) {}
+
+  async park(action: PendingAction): Promise<void> {
+    await this.pool.query(
+      `insert into pending_actions (
+         id, organisation_id, mandate_id, request_digest, request, reason, pack_id, status,
+         created_at, expires_at
+       )
+       values ($1, $2, $3, $4, $5, $6, $7, 'pending', $8, $9)
+       on conflict (id) do nothing`,
+      [
+        action.id,
+        action.organisationId,
+        action.mandateId,
+        action.requestDigest,
+        action.request,
+        action.reason,
+        action.packId ?? null,
+        action.createdAt,
+        action.expiresAt,
+      ],
+    );
+  }
+
+  async find(id: string, scope: TenantScope): Promise<PendingAction | undefined> {
+    const rows = await this.pool.query<PendingRow>(
+      `select ${PENDING_COLUMNS} from pending_actions
+       where id = $1 and ($2::text is null or organisation_id = $2)`,
+      [id, scope],
+    );
+    const row = rows.rows[0];
+    return row ? pendingFrom(row) : undefined;
+  }
+
+  async open(scope: TenantScope): Promise<PendingAction[]> {
+    const rows = await this.pool.query<PendingRow>(
+      `select ${PENDING_COLUMNS} from pending_actions
+       where status = 'pending' and ($1::text is null or organisation_id = $1)
+       order by created_at desc, id desc`,
+      [scope],
+    );
+    return rows.rows.map(pendingFrom);
+  }
+
+  async claim(
+    id: string,
+    to: Exclude<PendingStatus, "pending">,
+    at: string,
+    scope: TenantScope,
+  ): Promise<boolean> {
+    // Conditional on `status = 'pending'`, so of two racing resumes exactly one sees rowCount 1.
+    const updated = await this.pool.query(
+      `update pending_actions set status = $2, resolved_at = $3
+       where id = $1 and status = 'pending' and ($4::text is null or organisation_id = $4)`,
+      [id, to, at, scope],
+    );
+    return updated.rowCount === 1;
+  }
+}
+
 export function createPostgresRepositories(pool: Pool, retentionSeconds: number): Repositories {
   return {
     mandates: new PostgresMandateRepository(pool),
@@ -882,5 +980,6 @@ export function createPostgresRepositories(pool: Pool, retentionSeconds: number)
     directory: new PostgresDirectoryRepository(pool),
     agents: new PostgresAgentRepository(pool),
     capabilities: new PostgresCapabilityRepository(pool),
+    pending: new PostgresPendingActionRepository(pool),
   };
 }

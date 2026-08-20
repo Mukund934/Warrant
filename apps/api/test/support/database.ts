@@ -48,6 +48,7 @@ export class TestSchema {
         "006_house_scope.sql",
         "007_evidence_search.sql",
         "008_generated_evidence_columns.sql",
+        "009_pending_actions.sql",
       ].map((file) =>
         readFile(new URL(`../../migrations/${file}`, import.meta.url), "utf8"),
       ),

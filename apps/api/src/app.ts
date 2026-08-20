@@ -14,7 +14,7 @@ import { catalogueRoutes } from "./routes/catalogue.js";
 import { directoryRoutes } from "./routes/directory.js";
 import { searchRoutes } from "./routes/search.js";
 
-export const AUTHORITY_PATHS = ["/v1/mandates", "/v1/actions", "/v1/checkpoint"];
+export const AUTHORITY_PATHS = ["/v1/mandates", "/v1/actions", "/v1/checkpoint", "/v1/pending"];
 // A simulation records nothing, so it needs a tenant but not a write role. An auditor may ask.
 export const SIMULATION_PATHS = ["/v1/simulations", "/v1/reconstructions"];
 // Fetching one pack by its unguessable id stays open, because evidence is meant to be handed to a

@@ -14,6 +14,7 @@ import { parseBody } from "../http/validate.js";
 import type { Repositories } from "../persistence/types.js";
 import { delegate, issueRoot, revoke } from "../services/issuance.js";
 import { reconstruct } from "../services/reconstruction.js";
+import { resumePending } from "../services/pending.js";
 import { timelineFor } from "../services/timeline.js";
 import {
   simulateAction,
@@ -147,6 +148,8 @@ export function authorityRoutes(repositories: Repositories): Router {
     });
   });
 
+  const resumeSchema = z.object({ approval: approvalSchema }).strict();
+
   const simulationSchema = z
     .object({
       mandateId: z.string().min(1),
@@ -157,6 +160,33 @@ export function authorityRoutes(repositories: Repositories): Router {
       amount: moneySchema.optional(),
     })
     .strict();
+
+  router.get("/pending", async (request, response) => {
+    response.json(await repositories.pending.open(scopeOf(request)));
+  });
+
+  router.get("/pending/:id", async (request, response) => {
+    const parked = await repositories.pending.find(request.params.id, scopeOf(request));
+    if (!parked) throw notFound(`no pending action with id ${request.params.id}`);
+    response.json(parked);
+  });
+
+  router.post("/pending/:id/resume", async (request, response) => {
+    const body = parseBody(resumeSchema, request.body);
+    const outcome = await resumePending(
+      request.params.id,
+      body.approval,
+      repositories,
+      await actorFor(request, repositories),
+    );
+    response.status(201).json({
+      pendingActionId: outcome.pendingActionId,
+      verdict: outcome.decision.verdict,
+      reason: outcome.decision.reason,
+      decision: outcome.decision,
+      packId: outcome.pack.packId,
+    });
+  });
 
   router.post("/simulations", async (request, response) => {
     const body = parseBody(simulationSchema, request.body);
