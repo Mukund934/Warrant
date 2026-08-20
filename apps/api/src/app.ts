@@ -8,6 +8,8 @@ import { rateLimit } from "./http/rate-limit.js";
 import { createInMemoryRepositories } from "./persistence/memory.js";
 import type { Repositories } from "./persistence/types.js";
 import { agentRoutes } from "./routes/agents.js";
+import { assistantRoutes } from "./routes/assistant.js";
+import type { AssistantOptions } from "./routes/assistant.js";
 import { authorityRoutes } from "./routes/authority.js";
 import { capabilityRoutes } from "./routes/capabilities.js";
 import { catalogueRoutes } from "./routes/catalogue.js";
@@ -20,6 +22,9 @@ export const SIMULATION_PATHS = ["/v1/simulations", "/v1/reconstructions"];
 // Fetching one pack by its unguessable id stays open, because evidence is meant to be handed to a
 // relying party. Enumerating evidence is a different act and needs a tenant.
 export const SEARCH_PATHS = ["/v1/search", "/v1/replays", "/v1/statements"];
+// The assistant reads evidence, so it needs a tenant. It writes nothing and records nothing, so
+// it needs no write role: an auditor may ask it questions.
+export const ASSISTANT_PATHS = ["/v1/assistant"];
 export const DIRECTORY_PATHS = [
   "/v1/organisations",
   "/v1/agents",
@@ -31,6 +36,7 @@ export const PROTECTED_PATHS = [
   ...DIRECTORY_PATHS,
   ...SIMULATION_PATHS,
   ...SEARCH_PATHS,
+  ...ASSISTANT_PATHS,
 ];
 
 export interface DatabaseProbe {
@@ -42,6 +48,7 @@ export interface AppOptions {
   allowedOrigin?: string;
   database?: DatabaseProbe;
   auth?: AuthOptions;
+  assistant?: AssistantOptions;
 }
 
 export function createApp(options: AppOptions = {}): Express {
@@ -49,6 +56,7 @@ export function createApp(options: AppOptions = {}): Express {
   const allowedOrigin = options.allowedOrigin ?? "*";
   const database = options.database;
   const auth: AuthOptions = options.auth ?? { mode: "open" };
+  const assistant: AssistantOptions = options.assistant ?? {};
 
   assertCoherent(auth);
 
@@ -85,6 +93,10 @@ export function createApp(options: AppOptions = {}): Express {
       replayScope: repositories.nonces.scope,
       auth: auth.mode,
       authIssuer: auth.verifier ? auth.verifier.issuer : null,
+      // Declared rather than discovered, for the same reason `auth` is (D31). A reader can see
+      // that the advisory layer is off without being able to tell from any other endpoint - which
+      // is itself the §13a claim: nothing else changes when it is.
+      assistant: assistant.provider ? assistant.provider.id : null,
     });
   });
 
@@ -96,12 +108,14 @@ export function createApp(options: AppOptions = {}): Express {
   app.use(AUTHORITY_PATHS, requirePrincipal(auth), requireTenant(), writesNeed("member"));
   app.use(SIMULATION_PATHS, requirePrincipal(auth), requireTenant());
   app.use(SEARCH_PATHS, requirePrincipal(auth), requireTenant());
+  app.use(ASSISTANT_PATHS, requirePrincipal(auth), requireTenant());
 
   app.use("/v1", directoryRoutes(repositories));
   app.use("/v1", agentRoutes(repositories));
   app.use("/v1", capabilityRoutes(repositories));
   app.use("/v1", authorityRoutes(repositories));
   app.use("/v1", searchRoutes(repositories));
+  app.use("/v1", assistantRoutes(repositories, assistant));
 
   app.use(notFoundHandler);
   app.use(errorHandler);

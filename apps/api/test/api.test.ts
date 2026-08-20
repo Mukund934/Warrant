@@ -64,6 +64,7 @@ describe("service surface", () => {
       replayScope: "process",
       auth: "open",
       authIssuer: null,
+      assistant: null,
     });
   });
 
@@ -79,6 +80,7 @@ describe("service surface", () => {
       replayScope: "process",
       auth: "open",
       authIssuer: null,
+      assistant: null,
     });
   });
 

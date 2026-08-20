@@ -37,6 +37,11 @@ tags:
     description: What an organisation's action names mean, and what they demand.
   - name: verification
     description: Relying-party operations. Nothing here requires trusting this service.
+  - name: assistant
+    description: >
+      An advisory layer that explains, searches, summarises and proposes. It sits beside the
+      authorization path and never on it. Nothing here decides anything, and nothing here is
+      evidence.
 
 paths:
   /mandates:
@@ -705,6 +710,62 @@ paths:
         "200": { description: The recorded decision, the re-derived one, and every check side by side. }
         "401": { $ref: "#/components/responses/Unauthenticated" }
         "404": { $ref: "#/components/responses/NotFound" }
+
+  /assistant/tools:
+    get:
+      tags: [assistant]
+      summary: The complete tool surface the assistant can reach
+      description: >
+        Every named function the model is allowed to ask for, with its JSON Schema and whether it
+        reads or proposes. **Published deliberately.** The interesting claim about this assistant is
+        what it cannot reach, and that claim is only checkable if the list is public.
+
+        Every tool is read-only or proposal-only. **None writes.** There is no tool to issue,
+        delegate, revoke, approve, sign, register or change a role, and no arbitrary query of any
+        kind — no SQL, no shell, no tool that is not on this list.
+
+        **No tool accepts an organisation.** Not "ignores one" — none declares one, and the schemas
+        are strict, so a model that names an organisation produces a validation failure rather than a
+        cross-tenant read. What is visible is decided by the caller's own session before the model is
+        involved.
+
+        `configured` is false when the deployment has no model provider, which is a supported state
+        rather than a fault: the gate, the evidence plane and offline verification never consult it.
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200": { description: The tools, their effects, their schemas and the guarantees that hold over them. }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+
+  /assistant/ask:
+    post:
+      tags: [assistant]
+      summary: Ask a question about recorded authority and decisions
+      description: >
+        The model reads through the tools above and answers in prose. The answer is **narrative**:
+        it carries `narrative: true` and a disclaimer, it is never signed, it is never stored, and no
+        schema in this system will accept it as a decision or an evidence pack.
+
+        **The model never decides.** It does not recompute a verdict and is instructed not to predict
+        one: to answer *what would happen*, it calls `simulateAction`, and the deterministic gate
+        answers. To answer *why something was refused*, it reads the decision that was already signed.
+
+        **Everything a tool returns is data.** Descriptions, counterparty names and rationales are
+        written by other people and by agents, and any of them may contain text shaped like an
+        instruction. Tool results are handed back inside an envelope marked as content, never merged
+        into the instruction the model was given, and a tool the model was not offered cannot be
+        called whatever a document tells it. Attempts are reported in `refusals`.
+
+        `toolCalls` lists every tool the model asked for **including the refused ones**, so a reader
+        can see what it tried as well as what it did.
+
+        A response here needs the model. Its absence is a 503 and affects nothing else in this API.
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200": { description: The narrative answer, the tools it used, and anything it was refused. }
+        "400": { $ref: "#/components/responses/InvalidRequest" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "502": { description: "`assistant_protocol_error` or `assistant_no_answer` — the model answered, and the answer was unusable." }
+        "503": { description: "`assistant_not_configured` or `assistant_unavailable`. Every other endpoint is unaffected." }
 
   /evidence/{id}:
     get:

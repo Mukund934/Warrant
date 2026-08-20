@@ -201,6 +201,7 @@ withDatabase("the whole API on top of PostgreSQL", () => {
       replayScope: "deployment",
       auth: "open",
       authIssuer: null,
+      assistant: null,
     });
   });
 
