@@ -52,11 +52,26 @@ export interface SubmitActionResult {
   pack: EvidencePack;
 }
 
+/**
+ * Both `2026-01-01T00:00:00Z` and `2026-01-01T00:00:00.000Z` are valid here and are the same moment,
+ * but they sort in the wrong order as strings. Every comparison of two timestamps goes through this.
+ */
+export function instant(iso: string): number {
+  return new Date(iso).getTime();
+}
+
 async function revocationSnapshot(
   repositories: Repositories,
   scope: TenantScope,
+  asOf: string,
 ): Promise<RevocationSnapshot> {
-  const body = { asOf: nowIso(), revoked: await repositories.mandates.revocations(scope) };
+  const withdrawn = await repositories.mandates.revocations(scope);
+  const body = {
+    asOf,
+    // A mandate withdrawn after the moment being judged was still live at that moment. On the live
+    // path `asOf` is now and this removes nothing.
+    revoked: withdrawn.filter((record) => instant(record.revokedAt) <= instant(asOf)),
+  };
   return { ...body, proof: await signDetached(body, recorder, body.asOf) };
 }
 
@@ -68,14 +83,18 @@ async function priorSpendFor(
   repositories: Repositories,
   scope: TenantScope,
 ): Promise<Money | undefined> {
-  const since = new Date(at).getTime() - windowDays * 24 * 60 * 60 * 1000;
+  const until = new Date(at).getTime();
+  const since = until - windowDays * 24 * 60 * 60 * 1000;
   const packs = await repositories.evidence.recent(500, scope);
 
   let total = 0;
   for (const pack of packs) {
     if (pack.decision.verdict !== "ALLOW") continue;
     if (pack.authority.chain[0]?.id !== rootMandateId) continue;
-    if (new Date(pack.decision.evaluatedAt).getTime() < since) continue;
+    const spentAt = new Date(pack.decision.evaluatedAt).getTime();
+    if (spentAt < since) continue;
+    // Spend recorded after the moment being judged had not happened yet. Nothing is after `now`.
+    if (spentAt > until) continue;
     const amount = pack.request.amount;
     if (!amount || amount.currency !== currency) continue;
     total += amount.minor;
@@ -183,7 +202,7 @@ export async function gateContext(
   const organisationId = chain[0]!.organisation.id;
 
   const [revocation, roots, agentStatus, capability, houseScope] = await Promise.all([
-    revocationSnapshot(repositories, actor.scope),
+    revocationSnapshot(repositories, actor.scope, evaluatedAt),
     trustRootsFor(repositories, actor.scope),
     agentStatusFor(repositories, leaf.subject.keyId),
     resolveCapability(repositories, organisationId, action),

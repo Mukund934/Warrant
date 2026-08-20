@@ -217,6 +217,36 @@ paths:
         "401": { $ref: "#/components/responses/Unauthenticated" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /reconstructions:
+    post:
+      tags: [actions]
+      summary: What this authority was, and what it would have permitted, at a chosen instant
+      description: >
+        Rebuilds the chain as it stood at `at` — mandates issued by then, within their validity
+        window then, and not withdrawn as of then — and reports what it granted. Supply
+        `hypothetical` to also ask what the gate would have said about a specific action at that
+        instant.
+
+        **The authority reconstructs; the policy does not.** Mandates are signed documents carrying
+        their own timestamps, so the chain is genuine history. The capability catalogue, the house
+        ceiling and an agent's standing each keep only their current value, so this answers *the
+        authority as it stood then, judged by the policy as it stands now*. Whichever of those three
+        actually bore on the answer is named in `notHistorised`. Nothing is inferred or invented to
+        fill the gap.
+
+        Revocation and recorded spend **are** anchored to the instant: a mandate withdrawn afterwards
+        was still live then, and spend recorded afterwards had not happened yet.
+
+        **Records nothing and is not a decision.** No nonce is claimed, no ledger entry is written, and
+        the result carries `reconstructed: true` with no id, no proof and no gate. A future instant is
+        refused rather than guessed at.
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200": { description: The chain as it stood, its standing, what it granted, and what could not be reconstructed. }
+        "400": { $ref: "#/components/responses/InvalidRequest" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /checkpoint:
     post:
       tags: [verification]

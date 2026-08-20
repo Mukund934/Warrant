@@ -13,6 +13,7 @@ import { notFound } from "../http/errors.js";
 import { parseBody } from "../http/validate.js";
 import type { Repositories } from "../persistence/types.js";
 import { delegate, issueRoot, revoke } from "../services/issuance.js";
+import { reconstruct } from "../services/reconstruction.js";
 import { timelineFor } from "../services/timeline.js";
 import {
   simulateAction,
@@ -160,6 +161,28 @@ export function authorityRoutes(repositories: Repositories): Router {
   router.post("/simulations", async (request, response) => {
     const body = parseBody(simulationSchema, request.body);
     const outcome = await simulateAction(body, repositories, await actorFor(request, repositories));
+    response.json(outcome);
+  });
+
+  const reconstructionSchema = z
+    .object({
+      mandateId: z.string().min(1),
+      at: isoDateTime,
+      hypothetical: z
+        .object({
+          action: z.string().min(1).max(120),
+          resource: z.string().min(1).max(200),
+          counterparty: z.string().min(1).max(200),
+          amount: moneySchema.optional(),
+        })
+        .strict()
+        .optional(),
+    })
+    .strict();
+
+  router.post("/reconstructions", async (request, response) => {
+    const body = parseBody(reconstructionSchema, request.body);
+    const outcome = await reconstruct(body, repositories, await actorFor(request, repositories));
     response.json(outcome);
   });
 
