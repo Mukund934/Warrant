@@ -1,6 +1,12 @@
 import { GENESIS_DIGEST, ledgerEntryDigest } from "@warrant/core";
 import type { EvidencePack, LedgerEntry, Mandate, Scope } from "@warrant/core";
 import type { AgentStatus } from "@warrant/core";
+import {
+  decodeCursor,
+  encodeCursor,
+  matchesQuery,
+  summaryOf,
+} from "./types.js";
 import type {
   Account,
   AgentKey,
@@ -11,6 +17,8 @@ import type {
   CatalogueEnforcement,
   CatalogueState,
   DirectoryRepository,
+  EvidencePage,
+  EvidenceQuery,
   EvidenceRepository,
   LedgerRepository,
   MandateRepository,
@@ -91,6 +99,38 @@ export class InMemoryEvidenceRepository implements EvidenceRepository {
       if (stored && withinScope(stored.organisationId, scope)) visible.push(stored.pack);
     }
     return visible;
+  }
+
+  async search(query: EvidenceQuery, scope: TenantScope): Promise<EvidencePage> {
+    const after = query.cursor ? decodeCursor(query.cursor) : undefined;
+
+    const ordered = [...this.rows.values()]
+      .filter((stored) => withinScope(stored.organisationId, scope))
+      .map((stored) => summaryOf(stored.pack))
+      .filter((summary) => matchesQuery(summary, query))
+      .sort((a, b) =>
+        a.evaluatedAt === b.evaluatedAt
+          ? b.packId.localeCompare(a.packId)
+          : a.evaluatedAt < b.evaluatedAt
+            ? 1
+            : -1,
+      )
+      .filter(
+        (summary) =>
+          !after ||
+          summary.evaluatedAt < after.evaluatedAt ||
+          (summary.evaluatedAt === after.evaluatedAt && summary.packId < after.packId),
+      );
+
+    const results = ordered.slice(0, query.limit);
+    const last = results[results.length - 1];
+
+    return {
+      results,
+      ...(last && ordered.length > results.length
+        ? { nextCursor: encodeCursor(last.evaluatedAt, last.packId) }
+        : {}),
+    };
   }
 }
 

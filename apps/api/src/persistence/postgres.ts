@@ -10,6 +10,7 @@ import type {
   RiskLevel,
   Scope,
 } from "@warrant/core";
+import { decodeCursor, encodeCursor, summaryOf } from "./types.js";
 import type {
   Account,
   AgentKey,
@@ -20,6 +21,8 @@ import type {
   CatalogueEnforcement,
   CatalogueState,
   DirectoryRepository,
+  EvidencePage,
+  EvidenceQuery,
   EvidenceRepository,
   LedgerRepository,
   MandateRepository,
@@ -343,6 +346,52 @@ export class PostgresEvidenceRepository implements EvidenceRepository {
       [limit, scope],
     );
     return rows.rows.map((row) => row.document);
+  }
+
+  async search(query: EvidenceQuery, scope: TenantScope): Promise<EvidencePage> {
+    // Every filter is a SQL predicate, tenant included. Fetching and then filtering would put
+    // another organisation's evidence into this process's memory, which is where a leak starts.
+    const values: unknown[] = [scope];
+    const where = ["($1::text is null or organisation_id = $1)"];
+    const bind = (value: unknown): string => `$${values.push(value)}`;
+
+    if (query.verdict) where.push(`verdict = ${bind(query.verdict)}`);
+    if (query.action) where.push(`action = ${bind(query.action)}`);
+    if (query.counterparty) where.push(`counterparty = ${bind(query.counterparty)}`);
+    if (query.actor) where.push(`actor = ${bind(query.actor)}`);
+    if (query.rootMandateId) where.push(`root_mandate_id = ${bind(query.rootMandateId)}`);
+    if (query.currency) where.push(`amount_currency = ${bind(query.currency)}`);
+    if (query.minAmount !== undefined) where.push(`amount_minor >= ${bind(query.minAmount)}`);
+    if (query.maxAmount !== undefined) where.push(`amount_minor <= ${bind(query.maxAmount)}`);
+    if (query.from) where.push(`evaluated_at >= ${bind(query.from)}::timestamptz`);
+    if (query.to) where.push(`evaluated_at <= ${bind(query.to)}::timestamptz`);
+
+    const after = query.cursor ? decodeCursor(query.cursor) : undefined;
+    if (after) {
+      where.push(
+        `(evaluated_at, pack_id) < (${bind(after.evaluatedAt)}::timestamptz, ${bind(after.packId)})`,
+      );
+    }
+
+    // One row more than asked for, so "is there another page" costs no second count query.
+    const rows = await this.pool.query<{ document: EvidencePack }>(
+      `select document from evidence_packs
+       where ${where.join(" and ")}
+       order by evaluated_at desc, pack_id desc
+       limit ${bind(query.limit + 1)}`,
+      values,
+    );
+
+    const documents = rows.rows.map((row) => row.document);
+    const results = documents.slice(0, query.limit).map(summaryOf);
+    const last = results[results.length - 1];
+
+    return {
+      results,
+      ...(last && documents.length > query.limit
+        ? { nextCursor: encodeCursor(last.evaluatedAt, last.packId) }
+        : {}),
+    };
   }
 }
 

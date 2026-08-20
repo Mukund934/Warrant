@@ -3,11 +3,12 @@ import request from "supertest";
 import { exportJWK, generateKeyPair } from "jose";
 import { GENESIS_DIGEST, ledgerEntryDigest, verifyEvidencePack } from "@warrant/core";
 import type { EvidencePack, LedgerEntry, Mandate, Scope } from "@warrant/core";
-import { trustRoots } from "@warrant/core/fixtures";
+import { demoScenarios, trustRoots } from "@warrant/core/fixtures";
 import { createApp } from "../src/app.js";
 import {
   PostgresCapabilityRepository,
   PostgresDirectoryRepository,
+  PostgresEvidenceRepository,
   PostgresLedgerRepository,
   PostgresNonceStore,
   createPostgresRepositories,
@@ -922,5 +923,121 @@ withDatabase("the house scope in Postgres", () => {
         ["org:does-not-exist", CEILING],
       ),
     ).rejects.toThrow(/foreign key|violates/i);
+  }, 60_000);
+});
+
+withDatabase("evidence search in Postgres", () => {
+  const evidence = () => new PostgresEvidenceRepository(main.admin);
+  const orgs = { first: "", second: "" };
+  const mine: EvidencePack[] = [];
+  const theirs: EvidencePack[] = [];
+
+  beforeAll(async () => {
+    if (!databaseAvailable) return;
+    const stamp = crypto.randomUUID().slice(0, 8);
+    orgs.first = `org:search-a-${stamp}`;
+    orgs.second = `org:search-b-${stamp}`;
+
+    for (const id of [orgs.first, orgs.second]) {
+      await main.admin.query(
+        "insert into organisations (id, name, jurisdiction) values ($1, $2, 'IN-MH')",
+        [id, `Search ${id.slice(-8)}`],
+      );
+    }
+
+    // Real signed packs, split between two organisations so nothing collides on the primary key.
+    const scenarios = await demoScenarios();
+    const store = evidence();
+    for (const [index, scenario] of scenarios.entries()) {
+      const target = index % 2 === 0 ? mine : theirs;
+      target.push(scenario.pack);
+      await store.save(scenario.pack, index % 2 === 0 ? orgs.first : orgs.second);
+    }
+  }, 120_000);
+
+  it("fills the derived columns from the stored document, leaving the pack untouched", async () => {
+    const sample = mine[0]!;
+    const rows = await main.admin.query<{
+      action: string;
+      resource: string;
+      counterparty: string;
+      actor: string;
+      document: EvidencePack;
+    }>(
+      "select action, resource, counterparty, actor, document from evidence_packs where pack_id = $1",
+      [sample.packId],
+    );
+
+    const row = rows.rows[0]!;
+    expect(row.action).toBe(sample.request.action);
+    expect(row.resource).toBe(sample.request.resource);
+    expect(row.counterparty).toBe(sample.request.counterparty);
+    expect(row.actor).toBe(sample.request.actor);
+    expect(row.document).toEqual(sample);
+  }, 60_000);
+
+  // The repository inserts only the document, so these columns being right is Postgres computing
+  // them, not the application remembering to. That is what makes them independent of deploy order:
+  // a pack written by an older build still becomes searchable.
+  it("refuses to let anything write the derived columns directly", async () => {
+    const sample = mine[0]!;
+    await expect(
+      main.admin.query(
+        `insert into evidence_packs (
+           pack_id, root_mandate_id, organisation_id, verdict, evaluated_at, generated_at,
+           action, document
+         )
+         values ($1, $2, $3, 'ALLOW', now(), now(), 'payment.forged', $4)`,
+        [`pack_forced_${crypto.randomUUID().slice(0, 8)}`, sample.authority.chain[0]!.id, orgs.first, sample],
+      ),
+    ).rejects.toThrow(/non-DEFAULT value/i);
+  }, 60_000);
+
+  it("filters in SQL and never reaches another organisation", async () => {
+    const page = await evidence().search({ limit: 50 }, orgs.first);
+    const found = page.results.map((row) => row.packId);
+
+    expect(found.sort()).toEqual(mine.map((pack) => pack.packId).sort());
+    for (const pack of theirs) expect(found).not.toContain(pack.packId);
+  }, 60_000);
+
+  it("filters by verdict and by counterparty", async () => {
+    const store = evidence();
+    const blocked = mine.filter((pack) => pack.decision.verdict === "BLOCK");
+
+    const byVerdict = await store.search({ verdict: "BLOCK", limit: 50 }, orgs.first);
+    expect(byVerdict.results.map((row) => row.packId).sort()).toEqual(
+      blocked.map((pack) => pack.packId).sort(),
+    );
+
+    const counterparty = mine[0]!.request.counterparty;
+    const byCounterparty = await store.search({ counterparty, limit: 50 }, orgs.first);
+    expect(byCounterparty.results.every((row) => row.counterparty === counterparty)).toBe(true);
+    expect(byCounterparty.results.length).toBeGreaterThan(0);
+  }, 60_000);
+
+  it("pages on the pair it orders by, without repeating a row", async () => {
+    const store = evidence();
+    const seen: string[] = [];
+    let cursor: string | undefined;
+
+    for (let page = 0; page < 10; page += 1) {
+      const result = await store.search(
+        { limit: 2, ...(cursor ? { cursor } : {}) },
+        orgs.first,
+      );
+      seen.push(...result.results.map((row) => row.packId));
+      cursor = result.nextCursor;
+      if (!cursor) break;
+    }
+
+    expect(new Set(seen).size).toBe(seen.length);
+    expect(seen.sort()).toEqual(mine.map((pack) => pack.packId).sort());
+  }, 60_000);
+
+  it("returns nothing at all for an organisation that recorded nothing", async () => {
+    const empty = await evidence().search({ limit: 50 }, `${orgs.first}-nobody`);
+    expect(empty.results).toEqual([]);
+    expect(empty.nextCursor).toBeUndefined();
   }, 60_000);
 });

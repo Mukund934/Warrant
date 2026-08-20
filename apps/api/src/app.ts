@@ -12,17 +12,26 @@ import { authorityRoutes } from "./routes/authority.js";
 import { capabilityRoutes } from "./routes/capabilities.js";
 import { catalogueRoutes } from "./routes/catalogue.js";
 import { directoryRoutes } from "./routes/directory.js";
+import { searchRoutes } from "./routes/search.js";
 
 export const AUTHORITY_PATHS = ["/v1/mandates", "/v1/actions", "/v1/checkpoint"];
 // A simulation records nothing, so it needs a tenant but not a write role. An auditor may ask.
 export const SIMULATION_PATHS = ["/v1/simulations"];
+// Fetching one pack by its unguessable id stays open, because evidence is meant to be handed to a
+// relying party. Enumerating evidence is a different act and needs a tenant.
+export const SEARCH_PATHS = ["/v1/search"];
 export const DIRECTORY_PATHS = [
   "/v1/organisations",
   "/v1/agents",
   "/v1/capabilities",
   "/v1/house-scope",
 ];
-export const PROTECTED_PATHS = [...AUTHORITY_PATHS, ...DIRECTORY_PATHS, ...SIMULATION_PATHS];
+export const PROTECTED_PATHS = [
+  ...AUTHORITY_PATHS,
+  ...DIRECTORY_PATHS,
+  ...SIMULATION_PATHS,
+  ...SEARCH_PATHS,
+];
 
 export interface DatabaseProbe {
   probe(): Promise<boolean>;
@@ -86,11 +95,13 @@ export function createApp(options: AppOptions = {}): Express {
   app.use(DIRECTORY_PATHS, requirePrincipal(auth));
   app.use(AUTHORITY_PATHS, requirePrincipal(auth), requireTenant(), writesNeed("member"));
   app.use(SIMULATION_PATHS, requirePrincipal(auth), requireTenant());
+  app.use(SEARCH_PATHS, requirePrincipal(auth), requireTenant());
 
   app.use("/v1", directoryRoutes(repositories));
   app.use("/v1", agentRoutes(repositories));
   app.use("/v1", capabilityRoutes(repositories));
   app.use("/v1", authorityRoutes(repositories));
+  app.use("/v1", searchRoutes(repositories));
 
   app.use(notFoundHandler);
   app.use(errorHandler);

@@ -7,6 +7,7 @@ import type {
   RiskLevel,
   Scope,
   TrustRoot,
+  Verdict,
 } from "@warrant/core";
 
 export type TenantScope = string | null;
@@ -50,10 +51,95 @@ export interface MandateRepository {
   revocations(scope: TenantScope): Promise<RevocationRecord[]>;
 }
 
+export interface EvidenceQuery {
+  verdict?: Verdict;
+  action?: string;
+  counterparty?: string;
+  actor?: string;
+  rootMandateId?: string;
+  currency?: Money["currency"];
+  minAmount?: number;
+  maxAmount?: number;
+  from?: string;
+  to?: string;
+  limit: number;
+  /** `<evaluatedAt>|<packId>`, the exact pair the ordering uses, so a page boundary cannot drift. */
+  cursor?: string;
+}
+
+/** What was already decided, copied from the stored decision. Nothing here is recomputed. */
+export interface EvidenceSummary {
+  packId: string;
+  rootMandateId: string;
+  verdict: Verdict;
+  evaluatedAt: string;
+  action: string;
+  resource: string;
+  counterparty: string;
+  actor: string;
+  reason: string;
+  amount?: Money;
+}
+
+export interface EvidencePage {
+  results: EvidenceSummary[];
+  nextCursor?: string;
+}
+
+export const EVIDENCE_PAGE_LIMIT = 100;
+
+/** The pair the ordering uses. Encoding both is what keeps a page boundary stable under writes. */
+export function encodeCursor(evaluatedAt: string, packId: string): string {
+  return `${evaluatedAt}|${packId}`;
+}
+
+export function decodeCursor(cursor: string): { evaluatedAt: string; packId: string } | undefined {
+  const separator = cursor.lastIndexOf("|");
+  if (separator <= 0 || separator === cursor.length - 1) return undefined;
+  return { evaluatedAt: cursor.slice(0, separator), packId: cursor.slice(separator + 1) };
+}
+
+export function summaryOf(pack: EvidencePack): EvidenceSummary {
+  const amount = pack.request.amount;
+  return {
+    packId: pack.packId,
+    rootMandateId: pack.authority.chain[0]!.id,
+    verdict: pack.decision.verdict,
+    evaluatedAt: pack.decision.evaluatedAt,
+    action: pack.request.action,
+    resource: pack.request.resource,
+    counterparty: pack.request.counterparty,
+    actor: pack.request.actor,
+    reason: pack.decision.reason,
+    ...(amount ? { amount } : {}),
+  };
+}
+
+export function matchesQuery(summary: EvidenceSummary, query: EvidenceQuery): boolean {
+  if (query.verdict && summary.verdict !== query.verdict) return false;
+  if (query.action && summary.action !== query.action) return false;
+  if (query.counterparty && summary.counterparty !== query.counterparty) return false;
+  if (query.actor && summary.actor !== query.actor) return false;
+  if (query.rootMandateId && summary.rootMandateId !== query.rootMandateId) return false;
+  if (query.from && summary.evaluatedAt < query.from) return false;
+  if (query.to && summary.evaluatedAt > query.to) return false;
+
+  if (query.currency || query.minAmount !== undefined || query.maxAmount !== undefined) {
+    const amount = summary.amount;
+    if (!amount) return false;
+    if (query.currency && amount.currency !== query.currency) return false;
+    if (query.minAmount !== undefined && amount.minor < query.minAmount) return false;
+    if (query.maxAmount !== undefined && amount.minor > query.maxAmount) return false;
+  }
+
+  return true;
+}
+
 export interface EvidenceRepository {
   save(pack: EvidencePack, organisationId: string): Promise<void>;
   findById(packId: string, scope: TenantScope): Promise<EvidencePack | undefined>;
   recent(limit: number, scope: TenantScope): Promise<EvidencePack[]>;
+  search(query: EvidenceQuery, scope: TenantScope): Promise<EvidencePage>;
 }
 
 export interface LedgerRepository {

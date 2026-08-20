@@ -500,6 +500,32 @@ paths:
             is genuine; `authority` explains the verdict and is a finding, not a fault.
         "400": { $ref: "#/components/responses/InvalidRequest" }
 
+  /search/evidence:
+    get:
+      tags: [verification]
+      summary: Find evidence by what was decided
+      description: >
+        Filters recorded decisions by verdict, action, counterparty, actor, root mandate, currency,
+        amount range and time window. Results are summaries copied from the stored decision — nothing
+        is recomputed and no verdict is restated. Fetch the full pack from `/evidence/{id}`.
+
+        **Paginated on `(evaluatedAt, packId)`**, the exact pair the ordering uses, so a page boundary
+        stays stable while new decisions are being recorded. Pass the returned `nextCursor` back as
+        `cursor`; its absence means there is no further page.
+
+        **Enumerating evidence needs a tenant**, unlike fetching a single pack by its unguessable id,
+        which stays open because evidence exists to be handed to a relying party. Every filter,
+        including the tenant, is applied in SQL rather than after fetching.
+
+        An unknown query parameter is refused rather than ignored: a filter that is silently dropped
+        returns evidence the caller did not ask for and looks exactly like evidence that does not
+        exist.
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200": { description: Matching summaries, newest first, and a cursor if more remain. }
+        "400": { $ref: "#/components/responses/InvalidRequest" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+
   /evidence/{id}:
     get:
       tags: [verification]
