@@ -2,8 +2,7 @@ import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import request from "supertest";
 import type { Express } from "express";
 import { verifyControlStatement } from "@warrant/core";
-import type { Check, ControlFiring } from "@warrant/core";
-import { trustRoots } from "@warrant/core/fixtures";
+import type { Check, ControlFiring, TrustRoot } from "@warrant/core";
 import { createApp } from "../src/app.js";
 import { createInMemoryRepositories } from "../src/persistence/memory.js";
 import type { Repositories } from "../src/persistence/types.js";
@@ -47,6 +46,18 @@ interface Member {
 }
 
 const as = (who: Member) => ({ authorization: `Bearer ${who.token}` });
+
+/**
+ * The roots this organisation actually publishes, fetched the way a relying party would.
+ *
+ * Since Phase 9 (**D58**) each organisation signs with its own principal, gate and recorder keys, so
+ * the demonstration fixture roots verify only the demonstration path. Asking the service which keys
+ * it publishes is both closer to what a counterparty does and a stronger test: it proves the
+ * published set is the one that actually verifies.
+ */
+const publishedRoots = async (who: Member): Promise<TrustRoot[]> =>
+  (await request(app).get("/v1/trust-roots").set(as(who)).expect(200)).body;
+
 const statusOf = (checks: Check[], id: string) => checks.find((check) => check.id === id)?.status;
 
 async function enrol(subject: string, organisation: string): Promise<Member> {
@@ -113,7 +124,7 @@ describe("a signed statement of what the controls did", () => {
     await act(owner, await issue(owner));
 
     const view = await statement(owner).expect(201);
-    const checks = await verifyControlStatement(view.body, trustRoots);
+    const checks = await verifyControlStatement(view.body, await publishedRoots(owner));
 
     expect(statusOf(checks, "statement.format")).toBe("pass");
     expect(statusOf(checks, "statement.signature")).toBe("pass");
@@ -129,7 +140,7 @@ describe("a signed statement of what the controls did", () => {
     const view = await statement(owner).expect(201);
     const edited = { ...view.body, counts: { ...view.body.counts, refused: 0, allowed: 1 } };
 
-    const checks = await verifyControlStatement(edited, trustRoots);
+    const checks = await verifyControlStatement(edited, await publishedRoots(owner));
     expect(statusOf(checks, "statement.signature")).toBe("fail");
   });
 
@@ -140,7 +151,7 @@ describe("a signed statement of what the controls did", () => {
     const view = await statement(owner).expect(201);
     const edited = { ...view.body, counts: { ...view.body.counts, total: 99 } };
 
-    const checks = await verifyControlStatement(edited, trustRoots);
+    const checks = await verifyControlStatement(edited, await publishedRoots(owner));
     expect(statusOf(checks, "statement.arithmetic")).toBe("fail");
   });
 

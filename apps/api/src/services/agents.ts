@@ -2,6 +2,7 @@ import { publicPartOf, thumbprintOf } from "@warrant/core";
 import type { AgentStatus, PublicKeyJwk, TrustRoot } from "@warrant/core";
 import { digestOf } from "@warrant/core";
 import { notFound, unprocessable } from "../http/errors.js";
+import { keyringFor } from "./keyring.js";
 import type { AgentKey, RegisteredAgent, Repositories, TenantScope } from "../persistence/types.js";
 import { identifier, nowIso, trustRoots } from "../warrant/context.js";
 
@@ -196,16 +197,23 @@ export async function trustRootsFor(
 ): Promise<TrustRoot[]> {
   if (!organisationId) return trustRoots;
 
+  // An organisation publishes its own three authority keys, so a counterparty fetching these gets
+  // the set that verifies this organisation's evidence and not another's. One recorded before
+  // Phase 9 has no keyring and falls back to the shared demonstration roots, unchanged.
+  const organisation = await repositories.directory.findOrganisation(organisationId);
+  const keyring = organisation ? await keyringFor(repositories, organisation) : undefined;
+  const base = keyring ? keyring.roots : trustRoots;
+
   const [keys, registered] = await Promise.all([
     repositories.agents.keysFor(organisationId),
     repositories.agents.list(organisationId),
   ]);
-  if (keys.length === 0) return trustRoots;
+  if (keys.length === 0) return base;
 
   const names = new Map(registered.map((agent) => [agent.id, agent.name]));
 
   return [
-    ...trustRoots,
+    ...base,
     ...keys.map((key) => ({
       keyId: key.keyId,
       subject: names.get(key.agentId) ?? key.agentId,

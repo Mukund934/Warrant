@@ -29,6 +29,8 @@ import type {
   Membership,
   NonceStore,
   Organisation,
+  OrganisationKey,
+  OrganisationKeyRepository,
   RegisteredAgent,
   Repositories,
   RevocationRecord,
@@ -430,6 +432,27 @@ export class InMemoryPendingActionRepository implements PendingActionRepository 
   }
 }
 
+/**
+ * An organisation's own signing keys. All three are written together or none is: a keyring missing
+ * its gate key would let an organisation issue a mandate it could not then decide on, and that
+ * failure would surface much later as evidence nobody can verify.
+ */
+export class InMemoryOrganisationKeyRepository implements OrganisationKeyRepository {
+  private readonly rows = new Map<string, OrganisationKey[]>();
+
+  async install(keys: OrganisationKey[]): Promise<boolean> {
+    const organisationId = keys[0]?.organisationId;
+    if (!organisationId) return false;
+    if (this.rows.has(organisationId)) return false;
+    this.rows.set(organisationId, [...keys]);
+    return true;
+  }
+
+  async keyring(organisationId: string): Promise<OrganisationKey[]> {
+    return [...(this.rows.get(organisationId) ?? [])];
+  }
+}
+
 export function createInMemoryRepositories(): Repositories {
   return {
     mandates: new InMemoryMandateRepository(),
@@ -440,5 +463,6 @@ export function createInMemoryRepositories(): Repositories {
     agents: new InMemoryAgentRepository(),
     capabilities: new InMemoryCapabilityRepository(),
     pending: new InMemoryPendingActionRepository(),
+    organisationKeys: new InMemoryOrganisationKeyRepository(),
   };
 }

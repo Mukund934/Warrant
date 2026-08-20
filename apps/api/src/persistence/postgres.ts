@@ -34,6 +34,9 @@ import type {
   MembershipRole,
   NonceStore,
   Organisation,
+  OrganisationKey,
+  OrganisationKeyRepository,
+  OrganisationKeyRole,
   RegisteredAgent,
   ReplayScope,
   Repositories,
@@ -971,6 +974,74 @@ export class PostgresPendingActionRepository implements PendingActionRepository 
   }
 }
 
+interface OrganisationKeyRow {
+  key_id: string;
+  organisation_id: string;
+  role: OrganisationKeyRole;
+  public_key_jwk: OrganisationKey["publicKeyJwk"];
+  private_key_jwk: OrganisationKey["privateKeyJwk"];
+  created_at: Date;
+}
+
+const organisationKeyFrom = (row: OrganisationKeyRow): OrganisationKey => ({
+  organisationId: row.organisation_id,
+  role: row.role,
+  keyId: row.key_id,
+  publicKeyJwk: row.public_key_jwk,
+  privateKeyJwk: row.private_key_jwk,
+  createdAt: isoFromDatabase(row.created_at),
+});
+
+/**
+ * An organisation's own signing keys.
+ *
+ * Installed inside one transaction, because a keyring missing its gate key would let an organisation
+ * issue a mandate it could not then decide on. The table grants only `select, insert` — a key that
+ * could be updated in place would silently invalidate every pack it had already signed.
+ */
+export class PostgresOrganisationKeyRepository implements OrganisationKeyRepository {
+  constructor(private readonly pool: Pool) {}
+
+  async install(keys: OrganisationKey[]): Promise<boolean> {
+    if (keys.length === 0) return false;
+
+    const client = await this.pool.connect();
+    try {
+      await client.query("begin");
+      for (const key of keys) {
+        // `created_at` is written explicitly rather than left to the column default. It becomes the
+        // key's `signingFrom`, and a proof is timestamped by the application clock — so letting the
+        // database stamp this makes the two comparable only while the clocks agree. They do not: a
+        // few seconds of skew is enough for an organisation's own fresh evidence to verify as
+        // "published but not yet in use", which is how this was found.
+        await client.query(
+          `insert into organisation_keys (key_id, organisation_id, role, public_key_jwk, private_key_jwk, created_at)
+           values ($1, $2, $3, $4, $5, $6)`,
+          [key.keyId, key.organisationId, key.role, key.publicKeyJwk, key.privateKeyJwk, key.createdAt],
+        );
+      }
+      await client.query("commit");
+      return true;
+    } catch (error) {
+      await client.query("rollback").catch(() => undefined);
+      // A second installer lost the race, which is not an error: the keyring exists either way.
+      if ((error as { code?: string }).code === "23505") return false;
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async keyring(organisationId: string): Promise<OrganisationKey[]> {
+    const rows = await this.pool.query<OrganisationKeyRow>(
+      `select key_id, organisation_id, role, public_key_jwk, private_key_jwk, created_at
+       from organisation_keys where organisation_id = $1`,
+      [organisationId],
+    );
+    return rows.rows.map(organisationKeyFrom);
+  }
+}
+
 export function createPostgresRepositories(pool: Pool, retentionSeconds: number): Repositories {
   return {
     mandates: new PostgresMandateRepository(pool),
@@ -981,5 +1052,6 @@ export function createPostgresRepositories(pool: Pool, retentionSeconds: number)
     agents: new PostgresAgentRepository(pool),
     capabilities: new PostgresCapabilityRepository(pool),
     pending: new PostgresPendingActionRepository(pool),
+    organisationKeys: new PostgresOrganisationKeyRepository(pool),
   };
 }

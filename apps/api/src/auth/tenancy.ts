@@ -9,6 +9,7 @@ import type {
 } from "../persistence/types.js";
 import { DEMONSTRATION_ACTOR, accountablePerson } from "../services/issuance.js";
 import type { Actor } from "../services/issuance.js";
+import { DEMONSTRATION_KEYRING, keyringFor } from "../services/keyring.js";
 import { nowIso } from "../warrant/context.js";
 
 export interface Tenant {
@@ -167,6 +168,11 @@ export async function actorFor(request: Request, repositories: Repositories): Pr
     );
   }
 
+  // An organisation recorded before Phase 9 has no keyring and keeps signing with the shared
+  // demonstration keys, exactly as it always did. That fallback is what makes this change additive:
+  // nothing already recorded moves, and no backfill is needed.
+  const keyring = (await keyringFor(repositories, organisation)) ?? DEMONSTRATION_KEYRING;
+
   return {
     organisation,
     liablePrincipal: accountablePerson({
@@ -177,8 +183,10 @@ export async function actorFor(request: Request, repositories: Repositories): Pr
       role: tenant.role,
       organisationName: organisation.name,
       at: nowIso(),
+      keyId: keyring.principal.keyId,
     }),
     scope: organisation.id,
+    keyring,
   };
 }
 

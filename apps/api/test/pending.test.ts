@@ -2,8 +2,8 @@ import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import request from "supertest";
 import type { Express } from "express";
 import { signApproval, signerFromJwk, verifyEvidencePack } from "@warrant/core";
-import type { ActionRequest, Approval, Check, EvidencePack, LegalPerson } from "@warrant/core";
-import { principalKey, trustRoots } from "@warrant/core/fixtures";
+import type { ActionRequest, Approval, Check, EvidencePack, LegalPerson, TrustRoot } from "@warrant/core";
+import { principalKey } from "@warrant/core/fixtures";
 import { createApp } from "../src/app.js";
 import { createInMemoryRepositories } from "../src/persistence/memory.js";
 import type { PendingAction, Repositories } from "../src/persistence/types.js";
@@ -62,6 +62,18 @@ interface Member {
 }
 
 const as = (who: Member) => ({ authorization: `Bearer ${who.token}` });
+
+/**
+ * The roots this organisation actually publishes, fetched the way a relying party would.
+ *
+ * Since Phase 9 (**D58**) each organisation signs with its own principal, gate and recorder keys, so
+ * the demonstration fixture roots verify only the demonstration path. Asking the service which keys
+ * it publishes is both closer to what a counterparty does and a stronger test: it proves the
+ * published set is the one that actually verifies.
+ */
+const publishedRoots = async (who: Member): Promise<TrustRoot[]> =>
+  (await request(app).get("/v1/trust-roots").set(as(who)).expect(200)).body;
+
 const checkFor = (checks: Check[], id: string) => checks.find((check) => check.id === id);
 
 async function enrol(subject: string, organisation: string): Promise<Member> {
@@ -105,6 +117,31 @@ const read = (who: Member, id: string) => request(app).get(`/v1/pending/${id}`).
 
 const resume = (who: Member, id: string, approval: Approval) =>
   request(app).post(`/v1/pending/${id}/resume`).set(as(who)).send({ approval });
+
+/**
+ * The approver's key, as this organisation publishes it.
+ *
+ * Since Phase 9 (**D58**) an organisation's trust roots hold its own principal key and not the
+ * demonstration one, so an approval signed with the fixture key is refused by the gate — correctly,
+ * and that refusal is itself asserted below. A real approver is a person in the organisation whose
+ * key the service holds, which is what this returns.
+ */
+async function approverSigner(who: Member) {
+  const keys = await repositories.organisationKeys.keyring(who.organisationId);
+  const principal = keys.find((key) => key.role === "principal");
+  return principal ? signerFromJwk(principal.keyId, principal.privateKeyJwk) : principalSigner;
+}
+
+/**
+ * A valid approval from this organisation: signed with its principal key, and naming that same key
+ * as the approver's. The two have to agree — an approval whose named key is not the one that signed
+ * it is exactly the forgery the gate is meant to refuse, and one of the tests below does that on
+ * purpose.
+ */
+async function approvalBy(who: Member, target: ActionRequest): Promise<Approval> {
+  const signer = await approverSigner(who);
+  return approvalFor(target, { ...rahul, keyId: signer.keyId }, signer);
+}
 
 async function approvalFor(
   target: ActionRequest,
@@ -161,7 +198,7 @@ describe("resuming with the approval that satisfies it", () => {
     const owner = await enrol("user_priya", "Meridian Technologies");
     const pending = await escalate(owner);
 
-    const outcome = await resume(owner, pending.id, await approvalFor(pending.request)).expect(201);
+    const outcome = await resume(owner, pending.id, await approvalBy(owner, pending.request)).expect(201);
 
     expect(outcome.body.verdict).toBe("ALLOW");
     expect(outcome.body.pendingActionId).toBe(pending.id);
@@ -180,7 +217,7 @@ describe("resuming with the approval that satisfies it", () => {
       .expect(200);
     expect(live.body.decision.inputs.freshness.maxAgeSeconds).toBe(300);
 
-    const outcome = await resume(owner, pending.id, await approvalFor(pending.request)).expect(201);
+    const outcome = await resume(owner, pending.id, await approvalBy(owner, pending.request)).expect(201);
 
     // Wider, and written into the signed inputs so it reproduces offline against the rule applied.
     expect(outcome.body.decision.inputs.freshness.maxAgeSeconds).toBe(86_400);
@@ -190,14 +227,14 @@ describe("resuming with the approval that satisfies it", () => {
   it("produces evidence a stranger reproduces without this service", async () => {
     const owner = await enrol("user_priya", "Meridian Technologies");
     const pending = await escalate(owner);
-    const outcome = await resume(owner, pending.id, await approvalFor(pending.request)).expect(201);
+    const outcome = await resume(owner, pending.id, await approvalBy(owner, pending.request)).expect(201);
 
     const pack = (
       await request(app).get(`/v1/evidence/${outcome.body.packId}`).set(as(owner)).expect(200)
     ).body as EvidencePack;
 
     expect(pack.approval).toBeDefined();
-    const report = await verifyEvidencePack(pack, { trustRoots });
+    const report = await verifyEvidencePack(pack, { trustRoots: await publishedRoots(owner) });
     expect(report.result).toBe("VERIFIED");
     expect(report.authority?.verdict).toBe("ALLOW");
     expect(report.authority?.reproduced).toBe(true);
@@ -206,7 +243,7 @@ describe("resuming with the approval that satisfies it", () => {
   it("clears the parked action, so it no longer waits", async () => {
     const owner = await enrol("user_priya", "Meridian Technologies");
     const pending = await escalate(owner);
-    await resume(owner, pending.id, await approvalFor(pending.request)).expect(201);
+    await resume(owner, pending.id, await approvalBy(owner, pending.request)).expect(201);
 
     expect((await parked(owner).expect(200)).body).toEqual([]);
     expect((await read(owner, pending.id).expect(200)).body.status).toBe("resumed");
@@ -219,7 +256,7 @@ describe("a parked action is spent once", () => {
   it("refuses a second resume", async () => {
     const owner = await enrol("user_priya", "Meridian Technologies");
     const pending = await escalate(owner);
-    const approval = await approvalFor(pending.request);
+    const approval = await approvalBy(owner, pending.request);
 
     await resume(owner, pending.id, approval).expect(201);
     const again = await resume(owner, pending.id, approval).expect(422);
@@ -249,7 +286,7 @@ describe("a parked action is spent once", () => {
   it("lets exactly one of two simultaneous resumes through", async () => {
     const owner = await enrol("user_priya", "Meridian Technologies");
     const pending = await escalate(owner);
-    const approval = await approvalFor(pending.request);
+    const approval = await approvalBy(owner, pending.request);
 
     const [first, second] = await Promise.all([
       resume(owner, pending.id, approval),
@@ -279,7 +316,7 @@ describe("a parked action is spent once", () => {
 
     await repositories.pending.park({ ...pending, expiresAt: "2020-01-01T00:00:00Z" });
 
-    const refused = await resume(owner, pending.id, await approvalFor(pending.request)).expect(422);
+    const refused = await resume(owner, pending.id, await approvalBy(owner, pending.request)).expect(422);
     expect(refused.body.error).toBe("pending_expired");
     expect((await read(owner, pending.id).expect(200)).body.status).toBe("expired");
   });
@@ -296,7 +333,7 @@ describe("an approval still rescues nothing it is not entitled to", () => {
       .send({ reason: "withdrawn while the approval was pending" })
       .expect(204);
 
-    const outcome = await resume(owner, pending.id, await approvalFor(pending.request)).expect(201);
+    const outcome = await resume(owner, pending.id, await approvalBy(owner, pending.request)).expect(201);
 
     expect(outcome.body.verdict).toBe("BLOCK");
     expect(checkFor(outcome.body.decision.checks, "revocation.status")?.status).toBe("fail");
@@ -311,7 +348,7 @@ describe("an approval still rescues nothing it is not entitled to", () => {
       (row: PendingAction) => row.id !== pending.id,
     ) as PendingAction;
 
-    const outcome = await resume(owner, pending.id, await approvalFor(other.request)).expect(201);
+    const outcome = await resume(owner, pending.id, await approvalBy(owner, other.request)).expect(201);
 
     expect(elsewhere.body.verdict).toBe("ESCALATE");
     expect(outcome.body.verdict).toBe("ESCALATE");
@@ -346,7 +383,7 @@ describe("an approval still rescues nothing it is not entitled to", () => {
     await request(app)
       .post(`/v1/pending/${pending.id}/resume`)
       .set(as(owner))
-      .send({ approval: await approvalFor(pending.request), verdict: "ALLOW" })
+      .send({ approval: await approvalBy(owner, pending.request), verdict: "ALLOW" })
       .expect(400);
   });
 });
@@ -359,7 +396,7 @@ describe("a parked action belongs to one organisation", () => {
 
     expect((await parked(kalyani).expect(200)).body).toEqual([]);
     await read(kalyani, pending.id).expect(404);
-    await resume(kalyani, pending.id, await approvalFor(pending.request)).expect(404);
+    await resume(kalyani, pending.id, await approvalBy(meridian, pending.request)).expect(404);
 
     expect((await read(meridian, pending.id).expect(200)).body.status).toBe("pending");
   });
@@ -367,6 +404,6 @@ describe("a parked action belongs to one organisation", () => {
   it("refuses a pending action that does not exist", async () => {
     const owner = await enrol("user_priya", "Meridian Technologies");
     const pending = await escalate(owner);
-    await resume(owner, "pnd_nope", await approvalFor(pending.request)).expect(404);
+    await resume(owner, "pnd_nope", await approvalBy(owner, pending.request)).expect(404);
   });
 });

@@ -4,7 +4,7 @@ import type { Express } from "express";
 import { exportJWK, generateKeyPair } from "jose";
 import type { CryptoKey, JWK } from "jose";
 import { signActionRequest, signerFromJwk, verifyEvidencePack } from "@warrant/core";
-import type { ActionRequest, EvidencePack, PrivateKeyJwk } from "@warrant/core";
+import type { ActionRequest, EvidencePack, PrivateKeyJwk, TrustRoot } from "@warrant/core";
 import { apAgent, apAgentKey, trustRoots } from "@warrant/core/fixtures";
 import { createApp } from "../src/app.js";
 import { createInMemoryRepositories } from "../src/persistence/memory.js";
@@ -299,18 +299,24 @@ describe("an agent belongs to exactly one organisation", () => {
 });
 
 describe("a registered key reaches the verifier through the existing trust roots", () => {
-  it("publishes the agent key beside the fixture keys, never instead of them", async () => {
+  it("publishes the agent key beside the organisation's own keys, never instead of them", async () => {
     const owner = await enrol("user_priya", "Meridian Technologies");
     const agentId = await registerAgent(owner);
     const key = await repositories.agents.currentKey(agentId);
 
-    const fixtureOnly = await trustRootsFor(repositories, null);
+    const withoutAgent = await trustRootsFor(repositories, null);
     const withAgent = await trustRootsFor(repositories, owner.organisationId);
 
-    expect(withAgent).toHaveLength(fixtureOnly.length + 1);
-    for (const root of fixtureOnly) {
-      expect(withAgent.map((entry) => entry.keyId)).toContain(root.keyId);
+    // Since D58 the base set is this organisation's own principal, gate and recorder keys plus the
+    // demonstration agents its mandates name — not the deployment-wide fixture keys, which are what
+    // an unauthenticated caller still sees.
+    expect(withAgent).toHaveLength(withoutAgent.length + 1);
+    for (const role of ["principal", "gate", "ledger"] as const) {
+      expect(withAgent.filter((entry) => entry.role === role)).toHaveLength(1);
     }
+    expect(withAgent.map((entry) => entry.keyId)).not.toContain(
+      withoutAgent.find((entry) => entry.role === "gate")?.keyId,
+    );
 
     const published = withAgent.find((root) => root.keyId === key?.keyId);
     expect(published?.role).toBe("agent");
@@ -513,7 +519,10 @@ describe("a lifecycle change never rewrites what already happened", () => {
     await move(owner, "agt_fixture_runner", "revoked", "compromised").expect(200);
 
     const stored = await request(app).get(`/v1/evidence/${packId}`).set(as(owner)).expect(200);
-    const report = await verifyEvidencePack(stored.body as EvidencePack, { trustRoots });
+    const published = await request(app).get("/v1/trust-roots").set(as(owner)).expect(200);
+    const report = await verifyEvidencePack(stored.body as EvidencePack, {
+      trustRoots: published.body as TrustRoot[],
+    });
 
     expect(report.result).toBe("VERIFIED");
     expect(report.authority?.verdict).toBe("ALLOW");
@@ -561,7 +570,11 @@ describe("what the published key set discloses, and what it must never let a ten
     await registerAgent(owner, "Second");
 
     const roots = await trustRootsFor(repositories, owner.organisationId);
-    const registered = roots.slice(trustRoots.length);
+    const own = await repositories.organisationKeys.keyring(owner.organisationId);
+    const authority = new Set(own.map((key) => key.keyId));
+    const registered = roots.filter(
+      (root) => !authority.has(root.keyId) && !trustRoots.some((fixture) => fixture.keyId === root.keyId),
+    );
 
     expect(registered).toHaveLength(2);
     for (const root of registered) {
@@ -569,14 +582,19 @@ describe("what the published key set discloses, and what it must never let a ten
     }
   }, 30_000);
 
-  it("keeps the fixture keys first, so a registered key can never shadow one", async () => {
+  it("keeps the organisation's own keys first, so a registered key can never shadow one", async () => {
     const owner = await enrol("user_priya", "Meridian Technologies");
-    await registerAgent(owner);
+    const agentId = await registerAgent(owner);
+    const registered = await repositories.agents.currentKey(agentId);
 
     const roots = await trustRootsFor(repositories, owner.organisationId);
-    expect(roots.slice(0, trustRoots.length).map((root) => root.keyId)).toEqual(
-      trustRoots.map((root) => root.keyId),
-    );
+    const base = roots.slice(0, roots.length - 1);
+
+    // The authority keys come first and a registered agent key is appended after them, so a
+    // registered key can never take the place of one a verifier would reach for first.
+    expect(base.map((root) => root.keyId)).not.toContain(registered?.keyId);
+    expect(roots[roots.length - 1]?.keyId).toBe(registered?.keyId);
+    expect(base.filter((root) => root.role !== "agent")).toHaveLength(3);
   }, 30_000);
 
   it("publishes no private material for any registered key", async () => {

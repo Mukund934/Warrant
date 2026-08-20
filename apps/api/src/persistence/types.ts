@@ -5,6 +5,7 @@ import type {
   LedgerEntry,
   Mandate,
   Money,
+  PrivateKeyJwk,
   RiskLevel,
   Scope,
   TrustRoot,
@@ -216,6 +217,43 @@ export interface AgentRepository {
   rotate(agentId: string, replacement: AgentKey, retiredAt: string): Promise<boolean>;
 }
 
+/**
+ * The three keys an organisation signs its own authority with.
+ *
+ * `principal` signs the root mandates it issues, `gate` signs the decisions it reaches, and
+ * `ledger` signs its evidence packs, ledger heads and revocation snapshots. Agent keys are separate
+ * and already per-organisation (**D38**); these are the three that were not.
+ *
+ * Until Phase 9 every organisation on a deployment used the same demonstration keys, which made
+ * tenancy a data boundary and not a cryptographic one — one organisation's evidence verified under
+ * another's trust roots, because they were never separate keys.
+ */
+export type OrganisationKeyRole = "principal" | "gate" | "ledger";
+
+export interface OrganisationKey {
+  organisationId: string;
+  role: OrganisationKeyRole;
+  keyId: string;
+  publicKeyJwk: TrustRoot["publicKeyJwk"];
+  /**
+   * Held by the service, exactly as `assurance.keyCustody: "service"` already says of the
+   * demonstration keys (**D36**). Nothing here changes who holds a key; it changes how many there
+   * are, so that holding one organisation's key does not let you sign for another's.
+   */
+  privateKeyJwk: PrivateKeyJwk;
+  createdAt: string;
+}
+
+export interface OrganisationKeyRepository {
+  /**
+   * Writes a whole keyring in one go, and reports whether this caller is the one that wrote it.
+   * All three keys or none: an organisation holding two of them could sign a mandate it could not
+   * then decide on, and the failure would surface much later as unverifiable evidence.
+   */
+  install(keys: OrganisationKey[]): Promise<boolean>;
+  keyring(organisationId: string): Promise<OrganisationKey[]>;
+}
+
 export type CapabilityStatus = "active" | "deprecated" | "withdrawn";
 
 export type CatalogueEnforcement = "advisory" | "required";
@@ -296,4 +334,5 @@ export interface Repositories {
   agents: AgentRepository;
   capabilities: CapabilityRepository;
   pending: PendingActionRepository;
+  organisationKeys: OrganisationKeyRepository;
 }

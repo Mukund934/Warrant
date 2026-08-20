@@ -2,8 +2,7 @@ import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import request from "supertest";
 import type { Express } from "express";
 import { verifyEvidencePack } from "@warrant/core";
-import type { Check, EvidencePack } from "@warrant/core";
-import { trustRoots } from "@warrant/core/fixtures";
+import type { Check, EvidencePack, TrustRoot } from "@warrant/core";
 import { createApp } from "../src/app.js";
 import { InMemoryCapabilityRepository, createInMemoryRepositories } from "../src/persistence/memory.js";
 import type { Capability, Repositories } from "../src/persistence/types.js";
@@ -60,6 +59,18 @@ interface Member {
 }
 
 const as = (who: Member) => ({ authorization: `Bearer ${who.token}` });
+
+/**
+ * The roots this organisation actually publishes, fetched the way a relying party would.
+ *
+ * Since Phase 9 (**D58**) each organisation signs with its own principal, gate and recorder keys, so
+ * the demonstration fixture roots verify only the demonstration path. Asking the service which keys
+ * it publishes is both closer to what a counterparty does and a stronger test: it proves the
+ * published set is the one that actually verifies.
+ */
+const publishedRoots = async (who: Member): Promise<TrustRoot[]> =>
+  (await request(app).get("/v1/trust-roots").set(as(who)).expect(200)).body;
+
 
 const statusOf = (checks: Check[], id: string) => checks.find((check) => check.id === id)?.status;
 const detailOf = (checks: Check[], id: string) => checks.find((check) => check.id === id)?.detail;
@@ -404,7 +415,7 @@ describe("evidence a relying party already holds", () => {
     await move(owner, "payment.execute", "withdrawn").expect(200);
 
     const pack = await packFor(owner, outcome.body.packId);
-    const report = await verifyEvidencePack(pack, { trustRoots });
+    const report = await verifyEvidencePack(pack, { trustRoots: await publishedRoots(owner) });
 
     expect(report.result).toBe("VERIFIED");
     expect(report.authority?.verdict).toBe("ALLOW");
@@ -420,7 +431,7 @@ describe("evidence a relying party already holds", () => {
     expect(outcome.body.verdict).toBe("BLOCK");
 
     const pack = await packFor(owner, outcome.body.packId);
-    const report = await verifyEvidencePack(pack, { trustRoots });
+    const report = await verifyEvidencePack(pack, { trustRoots: await publishedRoots(owner) });
 
     expect(report.result).toBe("VERIFIED");
     expect(report.authority?.verdict).toBe("BLOCK");
@@ -446,7 +457,7 @@ describe("evidence a relying party already holds", () => {
       },
     };
 
-    expect((await verifyEvidencePack(edited, { trustRoots })).result).toBe("INVALID");
+    expect((await verifyEvidencePack(edited, { trustRoots: await publishedRoots(owner) })).result).toBe("INVALID");
   });
 });
 

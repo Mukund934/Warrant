@@ -2,12 +2,13 @@
 import request from "supertest";
 import { exportJWK, generateKeyPair } from "jose";
 import { GENESIS_DIGEST, ledgerEntryDigest, verifyEvidencePack } from "@warrant/core";
-import type { EvidencePack, LedgerEntry, Mandate, Scope } from "@warrant/core";
+import type { EvidencePack, LedgerEntry, Mandate, Scope, TrustRoot } from "@warrant/core";
 import { demoScenarios, trustRoots } from "@warrant/core/fixtures";
 import { createApp } from "../src/app.js";
 import {
   PostgresCapabilityRepository,
   PostgresDirectoryRepository,
+  PostgresOrganisationKeyRepository,
   PostgresEvidenceRepository,
   PostgresLedgerRepository,
   PostgresMandateRepository,
@@ -585,7 +586,11 @@ withDatabase("an assurance block survives a jsonb round trip", () => {
       .set(as(member))
       .expect(200);
 
-    const report = await verifyEvidencePack(stored.body as EvidencePack, { trustRoots });
+    // The organisation publishes its own roots since D58, so this is what a relying party fetches.
+    const published = await request(app).get("/v1/trust-roots").set(as(member)).expect(200);
+    const report = await verifyEvidencePack(stored.body as EvidencePack, {
+      trustRoots: published.body as TrustRoot[],
+    });
     expect(report.result).toBe("VERIFIED");
     expect(report.authority?.reproduced).toBe(true);
 
@@ -1119,5 +1124,68 @@ withDatabase("walking a mandate tree in Postgres", () => {
 
   it("asks the database nothing when there are no refs", async () => {
     expect(await ledger().entriesFor([])).toEqual([]);
+  }, 60_000);
+});
+
+/**
+ * An organisation's keys carry the moment they became usable, and a proof carries the moment it was
+ * made. If those two come from different clocks, an organisation's own fresh evidence verifies as
+ * *"published but not yet in use"* — which is exactly what happened when `created_at` was left to
+ * the column default and the database's clock ran a little ahead of the application's.
+ *
+ * The fix is that the application stamps the key. This is the test that would have caught it.
+ */
+withDatabase("an organisation's keys are stamped by the application clock", () => {
+  const keys = () => new PostgresOrganisationKeyRepository(main.admin);
+
+  it("stores the instant it was given, not the database's own now()", async () => {
+    const organisationId = `org:clock-${crypto.randomUUID().slice(0, 8)}`;
+    await new PostgresDirectoryRepository(main.admin).createOrganisation({
+      id: organisationId,
+      name: `Clock ${organisationId.slice(-8)}`,
+      jurisdiction: "IN-MH",
+    });
+
+    // Deliberately in the past, and deliberately to the second: nothing the database would produce.
+    const stamped = "2026-01-02T03:04:05Z";
+    const installed = await keys().install([
+      {
+        organisationId,
+        role: "principal",
+        keyId: `key:principal:clock-${crypto.randomUUID().slice(0, 8)}`,
+        publicKeyJwk: { kty: "EC", crv: "P-256", x: "abc", y: "def" },
+        privateKeyJwk: { kty: "EC", crv: "P-256", x: "abc", y: "def", d: "ghi" },
+        createdAt: stamped,
+      },
+    ]);
+
+    expect(installed).toBe(true);
+
+    const [stored] = await keys().keyring(organisationId);
+    expect(stored?.createdAt).toBe(stamped);
+  }, 60_000);
+
+  it("refuses a second keyring for the same organisation", async () => {
+    const organisationId = `org:once-${crypto.randomUUID().slice(0, 8)}`;
+    await new PostgresDirectoryRepository(main.admin).createOrganisation({
+      id: organisationId,
+      name: `Once ${organisationId.slice(-8)}`,
+      jurisdiction: "IN-MH",
+    });
+
+    const key = (suffix: string) => ({
+      organisationId,
+      role: "gate" as const,
+      keyId: `key:gate:once-${suffix}`,
+      publicKeyJwk: { kty: "EC" as const, crv: "P-256" as const, x: "abc", y: "def" },
+      privateKeyJwk: { kty: "EC" as const, crv: "P-256" as const, x: "abc", y: "def", d: "ghi" },
+      createdAt: "2026-01-02T03:04:05Z",
+    });
+
+    expect(await keys().install([key("first")])).toBe(true);
+    // A second is refused by the unique constraint rather than quietly added. An organisation whose
+    // gate key changed underneath it would leave all its earlier evidence unverifiable.
+    expect(await keys().install([key("second")])).toBe(false);
+    expect(await keys().keyring(organisationId)).toHaveLength(1);
   }, 60_000);
 });

@@ -11,18 +11,21 @@ import { testIdentity } from "./support/identity.js";
 import type { TestIdentity } from "./support/identity.js";
 
 /**
- * Where the two-organisation claim actually stands, written down as tests rather than as a caveat.
+ * The two-organisation flagship, asserted rather than described.
  *
- * Phase 9 is the flagship: one organisation records evidence, a second verifies it without trusting
- * the first. Two of the three things that needs are already true and are asserted here. The third is
- * not, and the point of this file is that **the gap is a failing-shaped test rather than a sentence
- * in a document** — when Phase 9 lands, the test named below inverts, and nothing else here moves.
+ * One organisation records evidence; a second verifies it **without trusting the first**. All three
+ * things that needs now hold, and the last of them is what Phase 9 was:
  *
  * | Claim | State |
  * | --- | --- |
- * | Neither organisation can read the other's evidence through the API | ✅ holds (F-P2, D34) |
- * | A pack verifies offline against keys fetched from the issuer, with no service involved | ✅ holds |
- * | A pack verifies **only** under the issuer's trust roots | ❌ not yet — see the last describe |
+ * | Neither organisation can read the other's evidence through the API | ✅ F-P2, **D34** |
+ * | A pack verifies offline against keys fetched from the issuer, with no service involved | ✅ |
+ * | A pack verifies **only** under the issuer's trust roots | ✅ **D58**, Phase 9 |
+ *
+ * The last block used to assert the opposite on purpose, because a limitation written in a document
+ * gets quoted as though it were fixed. It inverted the day each organisation got its own principal,
+ * gate and recorder keys — which is the whole of Phase 9, and the only part of the claim that was
+ * ever missing.
  */
 
 const inr = (major: number) => ({ currency: "INR" as const, minor: major * 100 });
@@ -195,41 +198,77 @@ describe("a pack verifies away from the service that made it", () => {
 });
 
 /**
- * **The Phase 9 gap, stated precisely.**
+ * **Cryptographic independence — the Phase 9 claim, earned.**
  *
- * Tenancy today is a data boundary and not a cryptographic one. Every organisation on a deployment
- * signs with the same demonstration gate and recorder keys, so a pack issued by one verifies under
- * the trust roots of the other — not because the second organisation checked anything, but because
- * they were never separate keys.
- *
- * That is asserted here rather than described, so the claim cannot quietly be made in a deck while
- * the code says otherwise. **Phase 9 inverts the first test in this block**: cross-organisation
- * verification must fail on an unknown key, and the flagship becomes real at the moment it does.
+ * Tenancy is no longer only a data boundary. Each organisation signs with its own principal, gate
+ * and recorder keys (**D58**), so a pack issued by one **fails** under the trust roots of the other.
+ * The second organisation is not taking the first's word for anything: it checks a signature against
+ * a key it holds, and the key is not there.
  */
-describe("cryptographic independence — NOT YET TRUE, and this is the Phase 9 target", () => {
-  it("today, one organisation's pack verifies under the other's trust roots", async () => {
+describe("cryptographic independence between organisations", () => {
+  it("refuses one organisation's pack under the other's trust roots", async () => {
     const { meridian, sundaram } = await twoOrganisations();
     const theirs = await recordEvidence(sundaram);
 
     const mine = await request(app).get("/v1/trust-roots").set(as(meridian)).expect(200);
     const report = await verifyEvidencePack(theirs, { trustRoots: mine.body as TrustRoot[] });
 
-    // When Phase 9 gives each organisation its own gate and recorder keys, this becomes
-    // `not.toBe("VERIFIED")` and the flagship claim is earned.
-    expect(report.result).toBe("VERIFIED");
+    // This assertion is the flagship. Before Phase 9 it read `toBe("VERIFIED")` and was true for
+    // the worst possible reason: the two organisations were never separate keys.
+    expect(report.result).not.toBe("VERIFIED");
+
+    // And it still verifies for its own issuer, so the refusal above is about the key rather than
+    // about the pack being broken.
+    const theirRoots = await request(app).get("/v1/trust-roots").set(as(sundaram)).expect(200);
+    const owner = await verifyEvidencePack(theirs, { trustRoots: theirRoots.body as TrustRoot[] });
+    expect(owner.result).toBe("VERIFIED");
+    expect(owner.authority?.reproduced).toBe(true);
   });
 
-  it("because both organisations are handed the same signing keys", async () => {
+  it("gives each organisation its own principal, gate and recorder keys", async () => {
     const { meridian, sundaram } = await twoOrganisations();
 
     const mine = await trustRootsFor(repositories, meridian.organisationId);
     const theirs = await trustRootsFor(repositories, sundaram.organisationId);
 
-    const keyIds = (roots: TrustRoot[]) => roots.map((root) => root.keyId).sort();
+    const authorityKeys = (roots: TrustRoot[]) =>
+      roots.filter((root) => root.role !== "agent").map((root) => root.keyId).sort();
 
-    // Identical, and that is the whole gap. After Phase 9 these sets must be disjoint except for
-    // whatever a deployment deliberately publishes in common.
-    expect(keyIds(mine)).toEqual(keyIds(theirs));
-    expect(mine.some((root) => root.role === "gate")).toBe(true);
+    const ours = authorityKeys(mine);
+    const yours = authorityKeys(theirs);
+
+    expect(ours).toHaveLength(3);
+    expect(yours).toHaveLength(3);
+    // Disjoint. Not one authority key in common.
+    expect(ours.filter((keyId) => yours.includes(keyId))).toEqual([]);
+
+    for (const role of ["principal", "gate", "ledger"] as const) {
+      expect(mine.some((root) => root.role === role)).toBe(true);
+      expect(theirs.some((root) => root.role === role)).toBe(true);
+    }
+  });
+
+  // The demonstration agents are shared fixtures and their keys are published by both, because a
+  // mandate naming one as its subject is signed by that agent's key when it delegates. Agent keys
+  // are not authority keys, and sharing them changes nothing about the claim above.
+  it("shares only the demonstration agent keys, which sign no verdict", async () => {
+    const { meridian, sundaram } = await twoOrganisations();
+
+    const mine = await trustRootsFor(repositories, meridian.organisationId);
+    const theirs = await trustRootsFor(repositories, sundaram.organisationId);
+
+    const shared = mine
+      .filter((root) => theirs.some((other) => other.keyId === root.keyId))
+      .map((root) => root.role);
+
+    expect(shared.length).toBeGreaterThan(0);
+    expect([...new Set(shared)]).toEqual(["agent"]);
+  });
+
+  it("names the deciding organisation in its own gate id", async () => {
+    const { sundaram } = await twoOrganisations();
+    const pack = await recordEvidence(sundaram);
+
+    expect(pack.decision.gate.id).toBe(`gate:${sundaram.organisationId}`);
   });
 });

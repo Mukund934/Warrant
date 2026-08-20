@@ -5,6 +5,7 @@ import { badRequest, notFound, unprocessable } from "../http/errors.js";
 import { parseBody } from "../http/validate.js";
 import { accountIdFor, assertRole, organisationIdFor } from "../auth/tenancy.js";
 import type { Repositories } from "../persistence/types.js";
+import { installKeyring } from "../services/keyring.js";
 import { nowIso } from "../warrant/context.js";
 
 const createOrganisationSchema = z.object({
@@ -85,6 +86,10 @@ export function directoryRoutes(repositories: Repositories): Router {
       accountId: account.id,
       role: "owner",
     });
+
+    // Its own principal, gate and recorder keys, generated here and never shared with another
+    // organisation. This is what makes tenancy cryptographic rather than merely a column.
+    await installKeyring(repositories, organisation);
 
     response.status(201).json({ ...organisation, role: "owner" });
   });

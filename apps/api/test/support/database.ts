@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import type { Pool } from "pg";
 import { createPool } from "../../src/persistence/postgres.js";
 
@@ -38,20 +38,15 @@ export class TestSchema {
 
   async create(): Promise<void> {
     const bootstrap = this.open(undefined, 1);
+    // Read from the directory rather than listed by hand. A hardcoded list silently stops applying
+    // new migrations, and the failure surfaces as a table that does not exist in a test schema long
+    // after the migration itself was written and applied everywhere else.
+    const directory = new URL("../../migrations/", import.meta.url);
+    const files = (await readdir(directory)).filter((name) => name.endsWith(".sql")).sort();
+    if (files.length === 0) throw new Error("no migrations found to build a test schema from");
+
     const migrations = await Promise.all(
-      [
-        "001_initial.sql",
-        "002_append_only_grants.sql",
-        "003_organisations.sql",
-        "004_agents.sql",
-        "005_capabilities.sql",
-        "006_house_scope.sql",
-        "007_evidence_search.sql",
-        "008_generated_evidence_columns.sql",
-        "009_pending_actions.sql",
-      ].map((file) =>
-        readFile(new URL(`../../migrations/${file}`, import.meta.url), "utf8"),
-      ),
+      files.map((file) => readFile(new URL(file, directory), "utf8")),
     );
 
     await bootstrap.query(`create schema ${this.name}`);

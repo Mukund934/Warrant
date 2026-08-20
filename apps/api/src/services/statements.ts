@@ -3,7 +3,7 @@ import type { ControlStatement, EvidencePack } from "@warrant/core";
 import { badRequest, notFound } from "../http/errors.js";
 import type { Repositories } from "../persistence/types.js";
 import type { Actor } from "./issuance.js";
-import { identifier, nowIso, recorder } from "../warrant/context.js";
+import { identifier, nowIso } from "../warrant/context.js";
 import { instant } from "./execution.js";
 
 /**
@@ -62,6 +62,6 @@ export async function issueControlStatement(
       complete,
       preparedAt: nowIso(),
     },
-    recorder,
+    actor.keyring.recorder,
   );
 }

@@ -3,8 +3,7 @@ import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import request from "supertest";
 import type { Express } from "express";
 import { verifyEvidencePack } from "@warrant/core";
-import type { EvidencePack } from "@warrant/core";
-import { trustRoots } from "@warrant/core/fixtures";
+import type { EvidencePack, TrustRoot } from "@warrant/core";
 import { createApp } from "../src/app.js";
 import { ORGANISATION_HEADER } from "../src/auth/tenancy.js";
 import { TEST_ISSUER, testIdentity } from "./support/identity.js";
@@ -56,6 +55,18 @@ async function enrol(subject: string, organisation: string): Promise<Member> {
 }
 
 const as = (member: Member) => ({ authorization: `Bearer ${member.token}` });
+
+/**
+ * The roots this organisation actually publishes, fetched the way a relying party would.
+ *
+ * Since Phase 9 (**D58**) each organisation signs with its own principal, gate and recorder keys, so
+ * the demonstration fixture roots verify only the demonstration path. Asking the service which keys
+ * it publishes is both closer to what a counterparty does and a stronger test: it proves the
+ * published set is the one that actually verifies.
+ */
+const publishedRoots = async (member: Member): Promise<TrustRoot[]> =>
+  (await request(app).get("/v1/trust-roots").set(as(member)).expect(200)).body;
+
 
 async function issueRoot(member: Member): Promise<string> {
   const response = await request(app)
@@ -408,7 +419,9 @@ describe("the mandate records who authorised it, and how they were identified", 
       .set(as(meridian))
       .expect(200);
 
-    const report = await verifyEvidencePack(stored.body as EvidencePack, { trustRoots });
+    const report = await verifyEvidencePack(stored.body as EvidencePack, {
+      trustRoots: await publishedRoots(meridian),
+    });
     expect(report.result).toBe("VERIFIED");
 
     const assurance = report.authority?.checks.find((check) => check.id === "principal.assurance");

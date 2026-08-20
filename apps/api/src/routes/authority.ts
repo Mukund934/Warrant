@@ -216,8 +216,10 @@ export function authorityRoutes(repositories: Repositories): Router {
     response.json(outcome);
   });
 
-  router.post("/checkpoint", async (_request, response) => {
-    response.status(201).json(await takeCheckpoint(repositories));
+  router.post("/checkpoint", async (request, response) => {
+    // Signed by the organisation taking it, like everything else it records.
+    const actor = await actorFor(request, repositories);
+    response.status(201).json(await takeCheckpoint(repositories, actor));
   });
 
   return router;

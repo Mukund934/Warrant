@@ -2,8 +2,7 @@ import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import request from "supertest";
 import type { Express } from "express";
 import { verifyEvidencePack } from "@warrant/core";
-import type { Check, EvidencePack } from "@warrant/core";
-import { trustRoots } from "@warrant/core/fixtures";
+import type { Check, EvidencePack, TrustRoot } from "@warrant/core";
 import { createApp } from "../src/app.js";
 import { createInMemoryRepositories } from "../src/persistence/memory.js";
 import type { Repositories } from "../src/persistence/types.js";
@@ -54,6 +53,18 @@ interface Member {
 }
 
 const as = (who: Member) => ({ authorization: `Bearer ${who.token}` });
+
+/**
+ * The roots this organisation actually publishes, fetched the way a relying party would.
+ *
+ * Since Phase 9 (**D58**) each organisation signs with its own principal, gate and recorder keys, so
+ * the demonstration fixture roots verify only the demonstration path. Asking the service which keys
+ * it publishes is both closer to what a counterparty does and a stronger test: it proves the
+ * published set is the one that actually verifies.
+ */
+const publishedRoots = async (who: Member): Promise<TrustRoot[]> =>
+  (await request(app).get("/v1/trust-roots").set(as(who)).expect(200)).body;
+
 const statusOf = (checks: Check[], id: string) => checks.find((check) => check.id === id)?.status;
 
 async function enrol(subject: string, organisation: string): Promise<Member> {
@@ -276,7 +287,7 @@ describe("evidence produced under a ceiling", () => {
     const pack = await packFor(owner, outcome.body.packId);
     expect(pack.decision.inputs.houseScope?.limits.perAction).toEqual(inr(200_000));
 
-    const report = await verifyEvidencePack(pack, { trustRoots });
+    const report = await verifyEvidencePack(pack, { trustRoots: await publishedRoots(owner) });
     expect(report.result).toBe("VERIFIED");
     expect(report.authority?.verdict).toBe("BLOCK");
     expect(report.authority?.reproduced).toBe(true);
@@ -292,7 +303,7 @@ describe("evidence produced under a ceiling", () => {
     await setCeiling(owner, { ...CEILING, limits: { perAction: inr(1_000) } }).expect(200);
 
     const report = await verifyEvidencePack(await packFor(owner, outcome.body.packId), {
-      trustRoots,
+      trustRoots: await publishedRoots(owner),
     });
     expect(report.result).toBe("VERIFIED");
     expect(report.authority?.verdict).toBe("ALLOW");
@@ -315,6 +326,6 @@ describe("evidence produced under a ceiling", () => {
       },
     };
 
-    expect((await verifyEvidencePack(edited, { trustRoots })).result).toBe("INVALID");
+    expect((await verifyEvidencePack(edited, { trustRoots: await publishedRoots(owner) })).result).toBe("INVALID");
   });
 });

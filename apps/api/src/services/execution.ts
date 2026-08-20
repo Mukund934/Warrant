@@ -7,7 +7,7 @@ import {
   signDetached,
   simulate,
 } from "@warrant/core";
-import type { AssessmentContext, Simulation } from "@warrant/core";
+import type { AssessmentContext, Simulation, SignerIdentity } from "@warrant/core";
 import type {
   ActionRequest,
   Approval,
@@ -30,12 +30,10 @@ import type { Actor } from "./issuance.js";
 import {
   ESCALATION_THRESHOLD,
   PENDING_FRESHNESS,
-  gate,
   identifier,
   CHECKPOINT_ORIGIN,
   REQUEST_FRESHNESS,
   nowIso,
-  recorder,
   signerForKeyId,
 } from "../warrant/context.js";
 
@@ -66,6 +64,7 @@ async function revocationSnapshot(
   repositories: Repositories,
   scope: TenantScope,
   asOf: string,
+  recorder: SignerIdentity,
 ): Promise<RevocationSnapshot> {
   const withdrawn = await repositories.mandates.revocations(scope);
   const body = {
@@ -109,6 +108,7 @@ async function signSegment(
   entries: LedgerEntry[],
   totalEntries: number,
   signedAt: string,
+  recorder: SignerIdentity,
 ): Promise<SignedHead> {
   const last = entries[entries.length - 1]!;
   const unsigned = {
@@ -120,13 +120,17 @@ async function signSegment(
   return { ...unsigned, proof: await signDetached(unsigned, recorder, signedAt) };
 }
 
-export async function takeCheckpoint(repositories: Repositories): Promise<Checkpoint> {
+export async function takeCheckpoint(
+  repositories: Repositories,
+  actor: Actor = DEMONSTRATION_ACTOR,
+): Promise<Checkpoint> {
   const latest = await repositories.ledger.head();
   if (!latest) {
     throw unprocessable("ledger_empty", "there is nothing to commit to yet");
   }
   const takenAt = nowIso();
-  const head = await signSegment([latest], await repositories.ledger.count(), takenAt);
+  const recorder = actor.keyring.recorder;
+  const head = await signSegment([latest], await repositories.ledger.count(), takenAt, recorder);
   return checkpointFor(head, CHECKPOINT_ORIGIN, takenAt, recorder);
 }
 
@@ -205,7 +209,7 @@ export async function gateContext(
   const organisationId = chain[0]!.organisation.id;
 
   const [revocation, roots, agentStatus, capability, houseScope] = await Promise.all([
-    revocationSnapshot(repositories, actor.scope, evaluatedAt),
+    revocationSnapshot(repositories, actor.scope, evaluatedAt, actor.keyring.recorder),
     trustRootsFor(repositories, actor.scope),
     agentStatusFor(repositories, leaf.subject.keyId),
     resolveCapability(repositories, organisationId, action),
@@ -334,11 +338,13 @@ export async function recordDecision(
   const roots = context.trustRoots;
   const revocation = context.revocation;
 
+  // The organisation's own gate signs its own verdict. Before Phase 9 this was one key shared by
+  // every tenant, which is what let one organisation's evidence verify under another's roots.
   const decision = await evaluate(
     request,
     chain,
     { ...context, ...(approval ? { approval } : {}) },
-    gate,
+    actor.keyring.gate,
   );
 
   const requestEntry = await repositories.ledger.append({
@@ -365,12 +371,15 @@ export async function recordDecision(
       request,
       chain,
       decision,
-      ledger: { entries: segment, head: await signSegment(segment, total, nowIso()) },
+      ledger: {
+        entries: segment,
+        head: await signSegment(segment, total, nowIso(), actor.keyring.recorder),
+      },
       revocation,
       ...(approval ? { approval } : {}),
       trustRoots: roots,
     },
-    recorder,
+    actor.keyring.recorder,
   );
 
   await repositories.evidence.save(pack, chain[0]!.organisation.id);

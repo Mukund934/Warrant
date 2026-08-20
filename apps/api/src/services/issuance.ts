@@ -9,6 +9,8 @@ import {
 import type { LegalPerson, Mandate, Scope, ScopeDelta } from "@warrant/core";
 import { notFound, unprocessable } from "../http/errors.js";
 import { subjectAgentFor } from "./agents.js";
+import { DEMONSTRATION_KEYRING } from "./keyring.js";
+import type { Keyring } from "./keyring.js";
 import type { Repositories, TenantScope } from "../persistence/types.js";
 import {
   apAgent,
@@ -16,7 +18,6 @@ import {
   nowIso,
   organisation,
   paymentAgent,
-  principalSigner,
   priyaSharma,
   signerForKeyId,
 } from "../warrant/context.js";
@@ -25,12 +26,19 @@ export interface Actor {
   organisation: Mandate["organisation"];
   liablePrincipal: LegalPerson;
   scope: TenantScope;
+  /**
+   * The keys this organisation signs with. Carried on the actor because the actor is already
+   * threaded through every write path, so there is no route by which a decision gets recorded
+   * without the caller having said, explicitly, whose keys it is being recorded under.
+   */
+  keyring: Keyring;
 }
 
 export const DEMONSTRATION_ACTOR: Actor = {
   organisation,
   liablePrincipal: priyaSharma,
   scope: null,
+  keyring: DEMONSTRATION_KEYRING,
 };
 
 export interface AccountablePersonInput {
@@ -41,6 +49,8 @@ export interface AccountablePersonInput {
   role: string;
   organisationName: string;
   at: string;
+  /** The organisation's own principal key, so the person is named against the key that signs for them. */
+  keyId: string;
 }
 
 export function accountablePerson(input: AccountablePersonInput): LegalPerson {
@@ -53,7 +63,7 @@ export function accountablePerson(input: AccountablePersonInput): LegalPerson {
     role: input.role,
     legalEntity: input.organisationName,
     identifier: identified ? `mailto:${input.email}` : `oidc:${input.issuer}#${input.subject}`,
-    keyId: principalSigner.keyId,
+    keyId: input.keyId,
     assurance: {
       identity: "authenticated",
       keyCustody: "service",
@@ -129,7 +139,7 @@ export async function issueRoot(
         expiresAt: input.expiresAt,
         issuedAt: nowIso(),
       },
-      principalSigner,
+      actor.keyring.principal,
     );
   } catch (error) {
     throw unprocessable("mandate_rejected", (error as Error).message);
